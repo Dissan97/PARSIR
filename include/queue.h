@@ -2,7 +2,7 @@
 #ifndef __QUEUE
 #define QUEUE
 
-// todo remove this stuff this must be setup in the Makefile
+
 #define WORKLOAD_DISTRIBUTION
 #define BARRIER_TIMER
 

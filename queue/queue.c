@@ -134,7 +134,7 @@ int queue_init(void){
             tail->timestamp = -1;
 #ifdef WORKLOAD_DISTRIBUTION
             queue[j][i].num_events = 0; // setup intial number of events
-			queue[j][i].mean_time = 1; // TODO: for now is a mean dummy change it
+			queue[j][i].mean_time = 1;
 
 #endif
             pthread_spin_init(&locks[j][i].lock,PTHREAD_PROCESS_PRIVATE);
