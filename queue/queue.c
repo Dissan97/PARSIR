@@ -4,11 +4,6 @@
 #include <pthread.h>
 #include <setup.h>
 #include "memory.h"
-#include <sys/signal.h>
-
-#ifdef WORKLOAD_DISTRIBUTION
-#include <stdbool.h>
-#endif
 
 slot queue[OBJECTS][NUM_SLOTS];
 lock_buffer locks[OBJECTS][NUM_SLOTS];
@@ -32,17 +27,16 @@ __thread fallback_slot fallback_queue; //WE INITIALIZE VIA EMPTY ZERO MEMORY = {
 __thread unsigned me;
 __thread unsigned target = -1;
 
-//we use '_' here just to discriminate from the
+//we use '_' here just to discriminate from the 
 //corresponding non TLS global variables
 __thread int * _c;
 __thread int * _min;
 __thread int * _max;
 //these are used for NUMA aware workload distribution
 __thread int myNUMAnode;
-__thread int myNUMAindex;
-__thread int stealNUMAindex;
-__thread int TOT_NUMA_NODES;
-
+__thread int myNUMAindex; 
+__thread int stealNUMAindex; 
+__thread int TOT_NUMA_NODES; 
 
 #ifdef NUMA_UBIQUITOUS
 __thread int to_restore = -1;
@@ -78,458 +72,198 @@ void mm_restore(void){
 	count_index = 0;
 }
 
+
 #endif
 
 #ifdef TLB_TEST
 __thread long taken_objects = -1;
 #endif
 
-#ifdef WORKLOAD_DISTRIBUTION
-// this have to be per_thread variable because each thread is pinned to a specific cpu. to avoid inconsistent tick took
-__thread long long _start_time = 0;
-__thread long long _end_time = 0;
-unsigned long long total_worktime[NUM_SLOTS] __attribute__((aligned(64))) = { [0 ... NUM_SLOTS - 1] 0};
-long long put_ID __attribute__((aligned(64))) = 0;
-long long get_ID __attribute__((aligned(64))) = 0;
-long long available_ID __attribute__((aligned(64))) = 0;
-long long total_workload __attribute__((aligned(64))) = 0;
-long long processed_IDs __attribute__((aligned(64))) = 0;
-
-long long secondary_IDs[OBJECTS] __attribute__((aligned(64))) = {[0 ... OBJECTS - 1] 0};
-__thread long long __ID_offloaded = -1;
-
-// this constant is core
-#define ALPHA (double)(1.8)
-const double one_plus_alpha = (1 + ALPHA);
-#endif
-
 
 void whoami(unsigned my_id){
-    AUDIT printf("just audit whoami: %u\n",my_id);
-    me = my_id;
-    _c = getcounter();
-    _min = getmin();
-    _max = getmax();
-    myNUMAindex = myNUMAnode = get_NUMAnode();
-    stealNUMAindex = 0;
-    TOT_NUMA_NODES = get_totNUMAnodes();
+	AUDIT printf("just audit whoami: %u\n",my_id);
+	me = my_id;
+	_c = getcounter();
+	_min = getmin();
+	_max = getmax();
+	myNUMAindex = myNUMAnode = get_NUMAnode(); 
+	stealNUMAindex = 0; 
+	TOT_NUMA_NODES = get_totNUMAnodes(); 
 }
-
-
 
 int queue_init(void){
 
-    int i;
-    int j;
-    queue_elem * head;
-    queue_elem * tail;
+	int i;
+	int j;
+	queue_elem * head;
+	queue_elem * tail;
 
-    for(j = 0; j < OBJECTS; j++){
-        for (i = 0; i < NUM_SLOTS; i++) {
-            head = &queue[j][i].head;
-            tail = &queue[j][i].tail;
-            head->next = tail;//setup initial double linked list
-            tail->prev = head;
-            head->timestamp = -1;//setup initial timestamp value
-            tail->timestamp = -1;
-#ifdef WORKLOAD_DISTRIBUTION
-            queue[j][i].num_events = 0; // setup intial number of events
-			queue[j][i].mean_time = 1;
-
-#endif
-            pthread_spin_init(&locks[j][i].lock,PTHREAD_PROCESS_PRIVATE);
-        }
-    }
-#ifdef WORKLOAD_DISTRIBUTION
-    for (i = 0; i < NUM_SLOTS; i++){
-		total_worktime[i] = 0;
+	for(j = 0; j < OBJECTS; j++){
+		for (i = 0; i < NUM_SLOTS; i++) {
+			head = &queue[j][i].head;	
+			tail = &queue[j][i].tail;	
+			head->next = tail;//setup initial double linked list
+        		tail->prev = head;
+			head->timestamp = -1;//setup initial timestamp value
+			tail->timestamp = -1;
+			pthread_spin_init(&locks[j][i].lock,PTHREAD_PROCESS_PRIVATE);
+		}
 	}
-#endif
-    return 1;
+
+	return 1;
 }
 
 void update_timing(void){
-
-
-    int i;
-    int j;
-#ifdef WORKLOAD_DISTRIBUTION
-    unsigned prev_index = current_index;
-#endif
-    current_min_limit += LOOKAHEAD;
-    current_max_limit += LOOKAHEAD;
-    current_index = (current_index + 1)%NUM_SLOTS;
-
-    AUDIT{
-        printf("updating timing - current min is %e - current max is %e - current index is %d\n",current_min_limit,current_max_limit, current_index);
-        fflush(stdout);
-    }
-
-
-    object_identifiers = 0;
-
-    for(i = 0; i < MAX_NUMA_NODES ; i++) object_identifiers_vector[i] = 0;
-#ifdef WORKLOAD_DISTRIBUTION
-    put_ID = 0;
-	get_ID = 0;
-	total_workload = 0;
-	processed_IDs = 0;
-	available_ID = 0;
-	total_worktime[prev_index] = 0;
-#endif
-    if(!pending_events) end = 1;
-}
-
-int queue_insert(queue_elem * elem){
-
-    queue_elem * current;
-    queue_elem * tail;
-    int index;
-    int dest;
-
-    AUDIT printf("just audit who I am: %u\n",me);
-
-    if(elem->timestamp < current_min_limit){
-        printf("illegal queue insert - timestamp is %e - min limit is %e\n",elem->timestamp,current_min_limit);
-        return -1;
-
-    }
-
-    if (elem->timestamp >= current_max_limit){
-        //here we make a tail insert - there will be no next
-        elem->next = NULL;
-        if (fallback_queue.head == NULL){
-            elem->prev = NULL;
-            fallback_queue.head = elem;
-            fallback_queue.tail = elem;
-        }
-        else{
-            elem->prev = fallback_queue.tail;
-            fallback_queue.tail->next = elem;
-            fallback_queue.tail = elem;
-        }
-        __sync_fetch_and_add(&pending_events,1);
-        return 0;
-    }
-
-    index = (int)((elem->timestamp) / (double)SLOT_LEN);
-    index = index % NUM_SLOTS;
-
-    AUDIT{
-        printf("inserting event with timestamp %e in slot %d\n",elem->timestamp, index);
-        fflush(stdout);
-    }
-
-    dest = elem->destination;
-
-    current = &queue[dest][index].head;
-    tail = &queue[dest][index].tail;
-
-    AUDIT{
-        printf("queue_insert for an element with timestamp %e\n",elem->timestamp);
-        fflush(stdout);
-    }
-
-    pthread_spin_lock(&locks[dest][index].lock);
-
-    while(current->timestamp <= elem->timestamp && current->next != tail){
-        current = current->next;
-    }
-
-    elem->next = current->next;//link to the subsequent element
-    current->next = elem;
-
-    elem->next->prev = elem;//relink the previoous elements
-    elem->prev = current;
-#ifdef WORKLOAD_DISTRIBUTION
-    __sync_fetch_and_add(&queue[dest][index].num_events, 1); // inc the number of the events in the slot
-#endif
-    __sync_fetch_and_add(&pending_events,1);//there is one more element in the queue
-
-    pthread_spin_unlock(&locks[dest][index].lock);
-
-    return 0;
-}
-
-void fallback_check(void){
-    queue_elem * temp = fallback_queue.head;//the fallback_queue is __thread hence
-    //we already run isolated on this queue
-    queue_elem * aux;
-    queue_elem * current;
-    queue_elem * tail;
-    int index;
-    int dest;
-
-    while(temp){
-        if (temp->timestamp >= current_max_limit){temp = temp->next;}
-
-        else{
-            aux = temp->next;
-            if (fallback_queue.head == temp) fallback_queue.head = temp->next;
-            if (fallback_queue.tail == temp) fallback_queue.tail = temp->prev;
-            if (temp->next) temp->next->prev = temp->prev;
-            if (temp->prev) temp->prev->next = temp->next;
-            index = (int)((temp->timestamp) / (double)SLOT_LEN);
-            index = index % NUM_SLOTS;
-            dest = temp->destination;
-            current = &queue[dest][index].head;//here current is not the object but
-            //the target queue head
-            tail = &queue[dest][index].tail;
-
-            AUDIT {
-                printf("queue_insert (from fallback) for an element with timestamp %e\n",temp->timestamp);
-                fflush(stdout);
-            }
-
-            pthread_spin_lock(&locks[dest][index].lock);
-
-            while(current->timestamp <= temp->timestamp && current->next != tail){
-                current = current->next;
-            }
-            temp->next = current->next;//link to the subsequent element
-            current->next = temp;
-            temp->next->prev = temp;//relink the previous elements
-            temp->prev = current;
-#ifdef WORKLOAD_DISTRIBUTION
-            __sync_fetch_and_add(&queue[dest][index].num_events, 1); // inc the number of the events in the slot from the fallback queue
-			//printf("%s(thread=%d, current_index=%d]): target=%d, cl_slot=%d\n", __func__, me, my_index, dest, index);
-#endif
-            pthread_spin_unlock(&locks[dest][index].lock);
-
-            temp = aux;
-        }
-    }
-
-}
-#ifdef WORKLOAD_DISTRIBUTION
-
-int is_light(long long ID){
-    /**
-     *
-                                     TW_i
-       NEx_i × etx < (1 + α) × ----------------
-                                    NUM OBJS
-     */
-
-	 return queue[ID][my_index].num_events * queue[ID][my_index].mean_time < one_plus_alpha * (
-		total_worktime[my_index] / OBJECTS
-	 );
-
-}
-
-void offload(long long ID)
-{
-    // per thread index to avoid issues cause i have now the offloaded id
-
-    __ID_offloaded = __sync_fetch_and_add(&put_ID, 1);
-    secondary_IDs[__ID_offloaded] = ID;
-
-}
-
-
-long long primary_ID_acquisition()
-{
-    long long ID;
-    ID = __sync_fetch_and_add(&available_ID, 1);
-
-    if (ID >= OBJECTS)
-    {
-        return NO_ID_AVAILABLE; // this will enable the thread
-        // to avoid additional call
-        // to this function while
-        // procesing the current epoch
-    }
-    if (!is_light(ID))
-    {
-
-        return ID; // the thread will simply
-        // process the event of this object
-    }
-
-	offload(ID);
-	return __ID_offloaded; //  the thread knows it will by using a per_thread variable
-	// need to eventually manage
-	// offloaded objects
-
-}
-
-long long secondary_ID_acquisition(long long *outcome)
-{
-
-    long long index;
-    long long ID;
-    index = get_ID;
-    if (index == put_ID)
-    {
-        *outcome = NO_ID_AVAILABLE; //NO_ID_AVAILABLE;
-        return -1;
-    }
-    if (!__sync_bool_compare_and_swap(&get_ID, index, index + 1))
-    {
-        *outcome = NEED_TO_RETRY; // NEED_TO_RETRY;
-        return -1;
-    }
-
-    //index++; // may be i need this index not the next
-    if (secondary_IDs[index] == NO_ID) // NO_ID)
-    {
-        *outcome = NOT_YET_WRITTEN; // NOT_YET_WRITTEN;
-        return index;
-    }
-    else
-    {
-        *outcome = WRITTEN; // WRITTEN;
-        ID = secondary_IDs[index];
-        secondary_IDs[index] = NO_ID; // NO_ID;
-        return ID;
-    }
-}
-
-long long ID_read_retry(long long *outcome, long long index)
-{
-    long long ID;
-    if (secondary_IDs[index] == -1) // NO_ID)
-    {
-        *outcome = NOT_YET_WRITTEN; // NOT_YET_WRITTEN;
-        return NO_ID;     // NO_ID;
-    }
-    else
-    {
-        *outcome = WRITTEN; // WRITTEN;
-        ID = secondary_IDs[index];
-        secondary_IDs[index] = NO_ID; // NO_ID;
-        return ID;
-    }
-}
-#endif
-
-queue_elem * queue_extract(){
-
-    int index;
-
-    queue_elem * head;
-    queue_elem * tail;
-    queue_elem * elem;
-#ifdef WORKLOAD_DISTRIBUTION
-    long long ID;
-	long long outcome;
-	long long EN_i=0;
-	int next_index;
-
-
-start:
-
-	if (target != -1){
-		goto workload_process;
-	}
-
-	while (1){
-		ID = primary_ID_acquisition();
-		if (ID == NO_ID_AVAILABLE) break;
-		if (ID != __ID_offloaded){
-
-			__sync_fetch_and_add(&processed_IDs, 1);
-			if (ID < OBJECTS){
-				target = ID;
-				//_to_process = 1;
-				took_tick(&_start_time);
-				goto workload_process;
-			}
-			printf("ERROR: never be here\n");
-		}
-	}
-	while(processed_IDs < OBJECTS){
-		ID = secondary_ID_acquisition(&outcome);
-
-		if (outcome == NO_ID_AVAILABLE){
-			break;
-		} else if (outcome == NEED_TO_RETRY){
-			continue;
-		} else if (outcome == NOT_YET_WRITTEN){
-			index = ID;
-				do{
-					ID = ID_read_retry(&outcome, index);
-					//here you can insert any housekkeping task
-					//that cna be executed while the ID to be
-					//read is actually witten
-				}while(outcome != WRITTEN);
-		}
-
-		__sync_fetch_and_add(&processed_IDs,1);
-
-		if (ID < OBJECTS){
-			target = ID;
-			//_to_process = 1;
-			took_tick(&_start_time);
-			goto workload_process;
-		}
-	}
+	current_min_limit += LOOKAHEAD;
+	current_max_limit += LOOKAHEAD;
+	current_index = (current_index + 1)%NUM_SLOTS;
+	int i;
 
 	AUDIT{
-		printf("found empty slot with index %d\n",index);
+		printf("updating timing - current min is %e - current max is %e - current index is %d\n",current_min_limit,current_max_limit, current_index);
 		fflush(stdout);
 	}
 
 
-	if( barrier()){
-		update_timing();//this call updates the queue layout and releases the objects taken by threads in the last epoch
+	object_identifiers = 0;
+
+	for(i = 0; i < MAX_NUMA_NODES ; i++) object_identifiers_vector[i] = 0;
+
+	if(!pending_events) end = 1;
+}
+
+int queue_insert(queue_elem * elem){
+
+	queue_elem * current;
+	queue_elem * tail;
+	int index;
+	int dest;
+
+	AUDIT printf("just audit who I am: %u\n",me);
+
+	if(elem->timestamp < current_min_limit){
+		printf("illegal queue insert - timestamp is %e - min limit is %e\n",elem->timestamp,current_min_limit);
+		return -1;
+
 	}
 
-	barrier();
-
-	my_index = current_index;
-
-	target = -1;
-	//reset stuff for NUMA aware workload distribution
-#ifdef WORKLOAD_DISTRIBUTION
-	__ID_offloaded = -1;
-#endif
-	myNUMAindex = myNUMAnode;
-	stealNUMAindex = 0;
-	fallback_check();
-	goto start;
-
-workload_process:
-    /*
-	if (target == -1){
-		exit(EXIT_FAILURE);
-	}*/
-	index = my_index;
-	head = &queue[target][index].head;
-	tail = &queue[target][index].tail;
-	pthread_spin_lock(&locks[target][index].lock);
-
-	if( head->next == tail) { //the current slot is empty
-				// updating the means the events
-		next_index = (index + 1) % NUM_SLOTS;
-		EN_i = (_end_time - _start_time) / (queue[target][index].num_events + 1) // to avoid division by zero
-			/ (double)SLOT_LEN;
-		queue[target][next_index].mean_time = EN_i;
-
-		EN_i = EN_i * (queue[target][index].num_events + 1);
-
-		__sync_fetch_and_add(&total_worktime[next_index], EN_i);
-
-		queue[target][index].num_events = 0;
-
-		pthread_spin_unlock(&locks[target][index].lock);
-		took_tick(&_end_time);
-		if (end){
-		       	return NULL;
+	if (elem->timestamp >= current_max_limit){
+		//here we make a tail insert - there will be no next
+		elem->next = NULL; 
+		if (fallback_queue.head == NULL){
+			elem->prev = NULL; 
+			fallback_queue.head = elem;
+			fallback_queue.tail = elem;
 		}
-		target = -1;
-
-		goto start;
-
+		else{
+			elem->prev = fallback_queue.tail;
+			fallback_queue.tail->next = elem;
+			fallback_queue.tail = elem;
+		}
+		__sync_fetch_and_add(&pending_events,1);
+		return 0;
 	}
-#else
-    start:
+
+	index = (int)((elem->timestamp) / (double)SLOT_LEN);
+	index = index % NUM_SLOTS;
+
+	AUDIT{
+		printf("inserting event with timestamp %e in slot %d\n",elem->timestamp, index);
+		fflush(stdout);
+	}
+
+	dest = elem->destination;
+
+	current = &queue[dest][index].head;
+	tail = &queue[dest][index].tail;
+
+	AUDIT{
+		printf("queue_insert for an element with timestamp %e\n",elem->timestamp);
+		fflush(stdout);
+	}
+
+	pthread_spin_lock(&locks[dest][index].lock);
+
+	while(current->timestamp <= elem->timestamp && current->next != tail){
+		current = current->next;
+	}
+
+	elem->next = current->next;//link to the subsequent element
+	current->next = elem;
+
+	elem->next->prev = elem;//relink the previoous elements
+	elem->prev = current;
+
+	__sync_fetch_and_add(&pending_events,1);//there is one more element in the queue
+
+	pthread_spin_unlock(&locks[dest][index].lock);
+
+	return 0;
+}
+
+void fallback_check(void){
+	queue_elem * temp = fallback_queue.head;//the fallback_queue is __thread hence
+						//we already run isolated on this queue
+	queue_elem * aux;
+	queue_elem * current;
+	queue_elem * tail;
+	int index;
+	int dest;
+
+	while(temp){
+		if (temp->timestamp >= current_max_limit){temp = temp->next;}
+		 
+		else{
+			aux = temp->next;
+			if (fallback_queue.head == temp) fallback_queue.head = temp->next;
+			if (fallback_queue.tail == temp) fallback_queue.tail = temp->prev;
+			if (temp->next) temp->next->prev = temp->prev;
+			if (temp->prev) temp->prev->next = temp->next;
+			index = (int)((temp->timestamp) / (double)SLOT_LEN);
+			index = index % NUM_SLOTS;
+			dest = temp->destination;
+			current = &queue[dest][index].head;//here current is not the object but 
+							   //the target queue head
+			tail = &queue[dest][index].tail;
+
+			AUDIT {
+				printf("queue_insert (from fallback) for an element with timestamp %e\n",temp->timestamp);
+				fflush(stdout);
+			}
+
+			pthread_spin_lock(&locks[dest][index].lock);
+	
+			while(current->timestamp <= temp->timestamp && current->next != tail){
+				current = current->next;
+			}
+			temp->next = current->next;//link to the subsequent element
+			current->next = temp;
+			temp->next->prev = temp;//relink the previous elements
+			temp->prev = current;
+
+			pthread_spin_unlock(&locks[dest][index].lock);
+
+			temp = aux;
+		}
+	}
+}
+
+queue_elem * queue_extract(){
+
+	int index;
+	queue_elem * head;
+	queue_elem * tail;
+	queue_elem * elem;
+
+	AUDIT printf("thread %d - extraction with target %d\n",me,target);
+
+start:
 #ifndef NUMA_BALANCING
-    if (target == -1) target =  __sync_fetch_and_add(&object_identifiers,1);
+	if (target == -1) target =  __sync_fetch_and_add(&object_identifiers,1);
 #else
-    if (target == -1){
+	if (target == -1){
 retry:
-		target = __sync_fetch_and_add(&object_identifiers_vector[myNUMAindex],1);
+		target = __sync_fetch_and_add(&object_identifiers_vector[myNUMAindex],1); 
 		if (target >= _c[myNUMAindex]){
 			if(stealNUMAindex < TOT_NUMA_NODES){
 				stealNUMAindex++;
@@ -545,18 +279,18 @@ retry:
 
 #endif
 
-    redo:
-    if (end) return NULL;
-    if (target < OBJECTS) {
-        index = my_index;
-        head = &queue[target][index].head;
-        tail = &queue[target][index].tail;
+redo:
+	if (end) return NULL;
+	if (target < OBJECTS) {
+		index = my_index;
+		head = &queue[target][index].head;
+		tail = &queue[target][index].tail;
 
-        if( head->next == tail) { //the current slot is empty - try with another target
+		if( head->next == tail) { //the current slot is empty - try with another target 
 #ifndef NUMA_BALANCING
-            target =  __sync_fetch_and_add(&object_identifiers,1);
+			target =  __sync_fetch_and_add(&object_identifiers,1);
 #else
-            target = __sync_fetch_and_add(&object_identifiers_vector[myNUMAindex],1);
+			target = __sync_fetch_and_add(&object_identifiers_vector[myNUMAindex],1); 
 			if (target >= _c[myNUMAindex]){
 				goto retry;
 				//the below stuff (if/else) is useless and can be removed
@@ -572,49 +306,49 @@ retry:
 				target += _min[myNUMAindex];
 			}
 #endif
-            goto redo;
-        }
-    }
-    else{
-        AUDIT{
-            printf("found empty slot with index %d\n",index);
-            fflush(stdout);
-        }
-        if( barrier()){
-            update_timing();//this call updates the queue layout and releases the objects taken by threads in the last epoch
-        }
+			goto redo;
+		}
+	}
+	else{
+		AUDIT{
+			printf("found empty slot with index %d\n",index);
+			fflush(stdout);
+		}
+		if( barrier()){
+			update_timing();//this call updates the queue layout and releases the objects taken by threads in the last epoch
+		}
 
 #ifdef NUMA_UBIQUITOUS
-        if (to_restore != -1) mm_restore();
+		if (to_restore != -1) mm_restore();
 #endif
-        barrier();
-        my_index = current_index;
-        target = -1;
-        //reset stuff for NUMA aware workload distribution
-        myNUMAindex = myNUMAnode;
-        stealNUMAindex = 0;
-        fallback_check();
-        goto start;
-    }
+		barrier();
+		my_index = current_index;
+		target = -1;
+		//reset stuff for NUMA aware workload distribution
+		myNUMAindex = myNUMAnode;
+		stealNUMAindex = 0;
+		fallback_check();
+		goto start;
+	}
 
 
 
-    pthread_spin_lock(&locks[target][index].lock);
+	pthread_spin_lock(&locks[target][index].lock);
 
-    if( head->next == tail) { //the current slot is empty
-        pthread_spin_unlock(&locks[target][index].lock);
-        if (end){
-            return NULL;
-        }
-        else goto redo;
-    }
+	if( head->next == tail) { //the current slot is empty  
+		pthread_spin_unlock(&locks[target][index].lock);
+		if (end){
+		       	return NULL;
+		}
+		else goto redo;
+	}
 
-    //regular extraction from a non-empty slot
+	//regular extraction from a non-empty slot
 
 
 
 #ifdef NUMA_UBIQUITOUS
-    num_events[count_index]++;
+	num_events[count_index]++;
 
 
 	if ((target == to_restore)){
@@ -624,33 +358,35 @@ retry:
 	if (to_restore != -1){
 		AUDIT printf("restoring mm for object %d\n",to_restore);
 		mm_restore();
-
+		 
 	}
 
 #ifdef TLB_TEST
 	if ((++taken_objects)%THRESHOLD == 0){
 		AUDIT printf("setting mm for object %d - just TLB test\n",target);
-		mm_set(target);
+		mm_set(target);	
 	}
 	goto process;
 #endif
 	if (maps[target].primary_node != myNUMAnode){
 		AUDIT printf("setting mm for object %d\n",target);
-		mm_set(target);
+		mm_set(target);	
 	}
 	AUDIT printf("simply processing local object %d\n",target);
 process:
 #endif
-#endif
-    elem = head->next;
 
-    head->next = elem->next;
-    elem->next->prev = head;
+	elem = head->next;
 
-    __sync_fetch_and_add(&pending_events,-1);
+	head->next = elem->next;
+	elem->next->prev = head;
 
-    pthread_spin_unlock(&locks[target][index].lock);
+	__sync_fetch_and_add(&pending_events,-1);
 
-    return elem;
+	pthread_spin_unlock(&locks[target][index].lock);
 
+	AUDIT printf("just returning from queue_extract\n");
+	return elem;
+	
 }
+

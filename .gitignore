@@ -53,3 +53,5 @@ dkms.conf
 
 bin
 setup-data
+.idea
+.temp_local
