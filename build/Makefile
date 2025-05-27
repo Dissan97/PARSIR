@@ -6,7 +6,7 @@ QUEUE_IMPL ?= DEFAULT
 
 # ====== Queue source selection ======
 ifeq ($(QUEUE_IMPL),LPTF)
-  QUEUE_SRC = ../queue/queue_LRTF.c
+  QUEUE_SRC = ../queue/queue_LPTF.c
 else
   QUEUE_SRC = ../queue/queue.c
 endif

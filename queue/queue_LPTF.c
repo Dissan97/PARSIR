@@ -128,7 +128,7 @@ void update_timing(void){
 	total_worktime[prev_index] = 0;
     if(!pending_events) end = 1;
 }
-
+// TODO: manage the etx mean time addition when a new event is inserted
 int queue_insert(queue_elem * elem){
 
     queue_elem * current;
@@ -191,14 +191,15 @@ int queue_insert(queue_elem * elem){
     elem->next->prev = elem;//relink the previoous elements
     elem->prev = current;
     __sync_fetch_and_add(&queue[dest][index].num_events, 1); // inc the number of the events in the slot
-    __sync_fetch_and_add(&total_worktime[dest], queue[dest][index].num_events * queue[dest][index].mean_time);
+    // TODO: PARSIR-1
+    //__sync_fetch_and_add(&total_worktime[dest], queue[dest][index].num_events * queue[dest][index].mean_time);
     __sync_fetch_and_add(&pending_events,1);//there is one more element in the queue
 
     pthread_spin_unlock(&locks[dest][index].lock);
 
     return 0;
 }
-
+// TODO: manage the etx mean time addition when a new event is inserted
 void fallback_check(void){
     queue_elem * temp = fallback_queue.head;//the fallback_queue is __thread hence
     //we already run isolated on this queue
@@ -239,7 +240,8 @@ void fallback_check(void){
             temp->next->prev = temp;//relink the previous elements
             temp->prev = current;
             __sync_fetch_and_add(&queue[dest][index].num_events, 1); // inc the number of the events in the slot from the fallback queue
-            __sync_fetch_and_add(&total_worktime[dest], queue[dest][index].num_events * queue[dest][index].mean_time);
+            // TODO: PARSIR-1
+            //__sync_fetch_and_add(&total_worktime[dest], queue[dest][index].num_events * queue[dest][index].mean_time);
             pthread_spin_unlock(&locks[dest][index].lock);
 
 
