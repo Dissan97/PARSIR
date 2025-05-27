@@ -41,16 +41,25 @@ __thread int TOT_NUMA_NODES;
 
 
 // this have to be per_thread variable because each thread is pinned to a specific cpu. to avoid inconsistent tick took
-__thread long long _start_time = 0;
-__thread long long _end_time = 0;
-unsigned long long total_worktime[NUM_SLOTS] __attribute__((aligned(64))) = { [0 ... NUM_SLOTS - 1] 0};
+#ifndef NUMA_BALANCING
 long long put_ID __attribute__((aligned(64))) = 0;
 long long get_ID __attribute__((aligned(64))) = 0;
 long long available_ID __attribute__((aligned(64))) = 0;
-long long total_workload __attribute__((aligned(64))) = 0;
 long long processed_IDs __attribute__((aligned(64))) = 0;
 long long secondary_IDs[OBJECTS] __attribute__((aligned(64))) = {[0 ... OBJECTS - 1] 0};
-__thread long long __ID_offloaded = -1;
+#else
+long long put_IDs [MAX_NUMA_NODES] __attribute__((aligned(64))) = { [0 ... MAX_NUMA_NODES-1] 0};
+long long get_IDs [MAX_NUMA_NODES] __attribute__((aligned(64))) = { [0 ... MAX_NUMA_NODES-1] 0};
+long long available_IDs [MAX_NUMA_NODES] __attribute__((aligned(64))) = { [0 ... MAX_NUMA_NODES-1] 0};
+long long secondary_IDs [MAX_NUMA_NODES][OBJECTS] __attribute__((aligned(64))) = { [0 ... MAX_NUMA_NODES-1][0 ... OBJECTS] 0};
+
+#endif
+long long total_workload __attribute__((aligned(64))) = 0;
+unsigned long long total_worktime[NUM_SLOTS] __attribute__((aligned(64))) = { [0 ... NUM_SLOTS - 1] 0};
+
+__thread long long _start_time = 0;
+__thread long long _end_time = 0;
+__thread long long _ID_offloaded = -1;
 
 // this constant is core
 #define ALPHA (double)(1.8)
@@ -182,6 +191,7 @@ int queue_insert(queue_elem * elem){
     elem->next->prev = elem;//relink the previoous elements
     elem->prev = current;
     __sync_fetch_and_add(&queue[dest][index].num_events, 1); // inc the number of the events in the slot
+    __sync_fetch_and_add(&total_worktime[dest], queue[dest][index].num_events * queue[dest][index].mean_time);
     __sync_fetch_and_add(&pending_events,1);//there is one more element in the queue
 
     pthread_spin_unlock(&locks[dest][index].lock);
@@ -229,7 +239,9 @@ void fallback_check(void){
             temp->next->prev = temp;//relink the previous elements
             temp->prev = current;
             __sync_fetch_and_add(&queue[dest][index].num_events, 1); // inc the number of the events in the slot from the fallback queue
+            __sync_fetch_and_add(&total_worktime[dest], queue[dest][index].num_events * queue[dest][index].mean_time);
             pthread_spin_unlock(&locks[dest][index].lock);
+
 
             temp = aux;
         }
@@ -245,7 +257,6 @@ int is_light(long long ID){
        NEx_i × etx < (1 + α) × ----------------
                                     NUM OBJS
      */
-
 	 return queue[ID][my_index].num_events * queue[ID][my_index].mean_time < one_plus_alpha * (
 		total_worktime[my_index] / OBJECTS
 	 );
@@ -256,16 +267,37 @@ void offload(long long ID)
 {
     // per thread index to avoid issues cause i have now the offloaded id
 
-    __ID_offloaded = __sync_fetch_and_add(&put_ID, 1);
-    secondary_IDs[__ID_offloaded] = ID;
+#ifndef NUMA_BALANCING
+    _ID_offloaded = __sync_fetch_and_add(&put_ID, 1);
+    secondary_IDs[_ID_offloaded] = ID;
+#else
+    _ID_offloaded = __sync_fetch_and_add(&put_ID[myNUMAindex], 1);
+    secondary_IDs[myNUMAindex][_ID_offloaded] = ID;
+#endif
 
 }
 
-
-long long primary_ID_acquisition()
-{
+// TODO: check if this is NUMA aware
+long long primary_ID_acquisition(){
     long long ID;
+#ifndef NUMA_BALANCING
     ID = __sync_fetch_and_add(&available_ID, 1);
+#else
+retry_numa_pa:
+    // numa aware primary ID acquisition
+    ID = __sync_fetch_and_add(&object_identifiers_vector[myNUMAindex], 1); 
+    if (ID >= _c[myNUMAindex]){
+			if(stealNUMAindex < TOT_NUMA_NODES){
+				stealNUMAindex++;
+				myNUMAindex = (myNUMAindex+1)%TOT_NUMA_NODES;
+				goto retry_numa_pa;
+			}
+			else ID = OBJECTS;
+		}
+		else{
+			ID += _min[myNUMAindex];
+		}
+#endif
 
     if (ID >= OBJECTS)
     {
@@ -282,31 +314,51 @@ long long primary_ID_acquisition()
     }
 
 	offload(ID);
-	return __ID_offloaded; //  the thread knows it will by using a per_thread variable
+	return _ID_offloaded; //  the thread knows it will by using a per_thread variable
 	// need to eventually manage
 	// offloaded objects
 
 }
 
-long long secondary_ID_acquisition(long long *outcome)
-{
+long long secondary_ID_acquisition(long long *outcome){
 
     long long index;
     long long ID;
+#ifndef NUMA_BALANCING
     index = get_ID;
     if (index == put_ID)
+#else
+retry_numa_sa:
+    // numa aware secondary ID acquisition
+    index = get_IDs[myNUMAindex];
+    if (stealNUMAindex < TOT_NUMA_NODES){
+        if (index == put_IDs[myNUMAindex]){
+            myNUMAindex = (myNUMAindex + 1) % TOT_NUMA_NODES;
+            stealNUMAindex++;       
+            goto retry_numa_sa;         
+        }
+    }else
+#endif
     {
         *outcome = NO_ID_AVAILABLE; //NO_ID_AVAILABLE;
         return -1;
     }
+#ifndef NUMA_BALANCING
     if (!__sync_bool_compare_and_swap(&get_ID, index, index + 1))
+#else
+    if (!__sync_bool_compare_and_swap(&get_IDs[myNUMAindex], index, index + 1))
+#endif
     {
         *outcome = NEED_TO_RETRY; // NEED_TO_RETRY;
         return -1;
     }
 
     //index++; // may be i need this index not the next
+#ifndef NUMA_BALANCING
     if (secondary_IDs[index] == NO_ID) // NO_ID)
+#else
+    if (secondary_IDs[myNUMAindex][index] == NO_ID) // NO_ID)
+#endif
     {
         *outcome = NOT_YET_WRITTEN; // NOT_YET_WRITTEN;
         return index;
@@ -314,16 +366,25 @@ long long secondary_ID_acquisition(long long *outcome)
     else
     {
         *outcome = WRITTEN; // WRITTEN;
+#ifndef NUMA_BALANCING
         ID = secondary_IDs[index];
         secondary_IDs[index] = NO_ID; // NO_ID;
+#else
+        ID = secondary_IDs[myNUMAindex][index];
+        secondary_IDs[myNUMAindex][index] = NO_ID; // NO_ID;
+#endif
         return ID;
     }
 }
 
-long long ID_read_retry(long long *outcome, long long index)
-{
+long long ID_read_retry(long long *outcome, long long index){
     long long ID;
-    if (secondary_IDs[index] == -1) // NO_ID)
+#ifndef NUMA_BALANCING
+    if (secondary_IDs[index] == NO_ID) // NO_ID)
+#else
+    if (secondary_IDs[myNUMAindex][index] == NO_ID) // NO_ID)
+#endif
+
     {
         *outcome = NOT_YET_WRITTEN; // NOT_YET_WRITTEN;
         return NO_ID;     // NO_ID;
@@ -331,8 +392,13 @@ long long ID_read_retry(long long *outcome, long long index)
     else
     {
         *outcome = WRITTEN; // WRITTEN;
+#ifndef NUMA_BALANCING
         ID = secondary_IDs[index];
         secondary_IDs[index] = NO_ID; // NO_ID;
+#else
+        ID = secondary_IDs[myNUMAindex][index];
+        secondary_IDs[myNUMAindex][index] = NO_ID; // NO_ID;
+#endif
         return ID;
     }
 }
@@ -350,7 +416,6 @@ queue_elem * queue_extract(){
 	long long EN_i=0;
 	int next_index;
 
-
 start:
 
 	if (target != -1){
@@ -360,7 +425,7 @@ start:
 	while (1){
 		ID = primary_ID_acquisition();
 		if (ID == NO_ID_AVAILABLE) break;
-		if (ID != __ID_offloaded){
+		if (ID != _ID_offloaded){
 
 			__sync_fetch_and_add(&processed_IDs, 1);
 			if (ID < OBJECTS){
@@ -372,6 +437,13 @@ start:
 			printf("ERROR: never be here\n");
 		}
 	}
+
+#ifdef NUMA_BALANCING
+    // reset numan aware indexes
+    myNUMAindex = myNUMAnode
+    stealNUMAindex = 0;
+#endif
+
 	while(processed_IDs < OBJECTS){
 		ID = secondary_ID_acquisition(&outcome);
 
@@ -414,20 +486,15 @@ start:
 	my_index = current_index;
 
 	target = -1;
+	_ID_offloaded = -1;
 	//reset stuff for NUMA aware workload distribution
-#ifdef WORKLOAD_DISTRIBUTION
-	__ID_offloaded = -1;
-#endif
 	myNUMAindex = myNUMAnode;
 	stealNUMAindex = 0;
 	fallback_check();
 	goto start;
 
 workload_process:
-    /*
-	if (target == -1){
-		exit(EXIT_FAILURE);
-	}*/
+
 	index = my_index;
 	head = &queue[target][index].head;
 	tail = &queue[target][index].tail;
@@ -436,6 +503,7 @@ workload_process:
 	if( head->next == tail) { //the current slot is empty
 				// updating the means the events
 		next_index = (index + 1) % NUM_SLOTS;
+        // TODO: mean time calculation check
 		EN_i = (_end_time - _start_time) / (queue[target][index].num_events + 1) // to avoid division by zero
 			/ (double)SLOT_LEN;
 		queue[target][next_index].mean_time = EN_i;
