@@ -5,7 +5,7 @@ HWSETUP   = -DMEM_NODES=2
 QUEUE_IMPL ?= DEFAULT
 
 # ====== Queue source selection ======
-ifeq ($(QUEUE_IMPL),LRTF)
+ifeq ($(QUEUE_IMPL),LPTF)
   QUEUE_SRC = ../queue/queue_LRTF.c
 else
   QUEUE_SRC = ../queue/queue.c
