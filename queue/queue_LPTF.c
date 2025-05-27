@@ -192,7 +192,7 @@ int queue_insert(queue_elem * elem){
     elem->prev = current;
     __sync_fetch_and_add(&queue[dest][index].num_events, 1); // inc the number of the events in the slot
     // TODO: PARSIR-1
-    //__sync_fetch_and_add(&total_worktime[dest], queue[dest][index].num_events * queue[dest][index].mean_time);
+    __sync_fetch_and_add(&total_worktime[index], queue[dest][index].num_events * queue[dest][index].mean_time);
     __sync_fetch_and_add(&pending_events,1);//there is one more element in the queue
 
     pthread_spin_unlock(&locks[dest][index].lock);
@@ -241,7 +241,7 @@ void fallback_check(void){
             temp->prev = current;
             __sync_fetch_and_add(&queue[dest][index].num_events, 1); // inc the number of the events in the slot from the fallback queue
             // TODO: PARSIR-1
-            //__sync_fetch_and_add(&total_worktime[dest], queue[dest][index].num_events * queue[dest][index].mean_time);
+            __sync_fetch_and_add(&total_worktime[index], queue[dest][index].num_events * queue[dest][index].mean_time);
             pthread_spin_unlock(&locks[dest][index].lock);
 
 
