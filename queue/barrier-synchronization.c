@@ -46,6 +46,7 @@ long now_nsec() {
     return ts.tv_sec * 1000000000L + ts.tv_nsec;
 }
 
+
 int barrier_timer(void) {
     int ret;
     int last_thread;
@@ -63,13 +64,14 @@ int barrier_timer(void) {
     if (last_thread == THREADS - 1) {
         long end_time = now_nsec();
         long waiting_time = end_time - start_time;
-
+        
         recorded_nano += waiting_time;
         record++;
 
         if (record >= MEAN_TIME_NUM) {
             mean_waiting_time = (double)recorded_nano / (double)record;
-            printf("Timer round %lu: mean waiting time = %.3f ns\n", timer_count + 1, mean_waiting_time);
+            printf("Timer round %lu: mean waiting time=%.3f cumulative_time=%lld ns\n", timer_count + 1, 
+                mean_waiting_time, recorded_nano);
 
             // Reset stats
             record = 0;
