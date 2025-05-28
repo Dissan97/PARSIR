@@ -510,7 +510,7 @@ workload_process:
 		took_tick(&_end_time);
         
 		EN_i = (_end_time - _start_time) / (queue[target][index].num_events + 1); // to avoid division by zero;
-        printf("EN_i is %lld\n", EN_i);
+        
 		queue[target][next_index].mean_time = EN_i;
 
 		EN_i = EN_i * (queue[target][index].num_events + 1);
