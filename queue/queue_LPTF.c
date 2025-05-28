@@ -508,12 +508,11 @@ workload_process:
 		// updating the means the events
 		next_index = (index + 1) % NUM_SLOTS;
 		took_tick(&_end_time);
-        
-		EN_i = (_end_time - _start_time) / (queue[target][index].num_events + 1); // to avoid division by zero;
+
+		// etx calculation
+		EN_i = (_end_time - _start_time) / (queue[target][index].num_events + 1); // to avoid division by zero 0 events
         
 		queue[target][next_index].mean_time = EN_i;
-
-		EN_i = EN_i * (queue[target][index].num_events + 1);
 
 		__sync_fetch_and_add(&total_worktime[next_index], EN_i);
 
