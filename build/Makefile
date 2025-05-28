@@ -17,6 +17,7 @@ all: runtime
 
 runtime:
 	mkdir -p ../lib	
+	mkdir -p ../bin
 	cd ../scripts && make get-HW-info
 	gcc -c -O3 $(QUEUE_SRC) -o ../lib/queue.o -I ../include $(FLAGS) $(HWSETUP)
 	gcc -c ../queue/barrier-synchronization.c -o ../lib/barrier-synchronization.o -I ../include $(FLAGS) $(HWSETUP)
