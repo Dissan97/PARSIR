@@ -16,6 +16,7 @@ all: runtime
 	@echo "The runtime environment of PARSIR has been compiled - object files are available in the lib directory"
 
 runtime:
+	mkdir -p ../lib	
 	cd ../scripts && make get-HW-info
 	gcc -c -O3 $(QUEUE_SRC) -o ../lib/queue.o -I ../include $(FLAGS) $(HWSETUP)
 	gcc -c ../queue/barrier-synchronization.c -o ../lib/barrier-synchronization.o -I ../include $(FLAGS) $(HWSETUP)
