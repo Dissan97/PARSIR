@@ -13,11 +13,9 @@
 slot queue[OBJECTS][NUM_SLOTS];
 lock_buffer locks[OBJECTS][NUM_SLOTS];
 
-
 double volatile current_min_limit = 0.0;
 double volatile current_max_limit = NUM_SLOTS * LOOKAHEAD;
 int volatile current_index = 0;
-
 
 long pending_events __attribute__((aligned(64))) = 0;
 int end = 0;
@@ -52,9 +50,7 @@ long long put_IDs [MAX_NUMA_NODES] __attribute__((aligned(64))) = { [0 ... MAX_N
 long long get_IDs [MAX_NUMA_NODES] __attribute__((aligned(64))) = { [0 ... MAX_NUMA_NODES-1] 0};
 long long available_IDs [MAX_NUMA_NODES] __attribute__((aligned(64))) = { [0 ... MAX_NUMA_NODES-1] 0};
 long long secondary_IDs [MAX_NUMA_NODES][OBJECTS] __attribute__((aligned(64))) = { [0 ... MAX_NUMA_NODES-1][0 ... OBJECTS] 0};
-
 #endif
-long long total_workload __attribute__((aligned(64))) = 0;
 unsigned long long total_worktime[NUM_SLOTS] __attribute__((aligned(64))) = { [0 ... NUM_SLOTS - 1] 0};
 
 __thread long long _start_time = 0;
@@ -64,8 +60,6 @@ __thread long long _ID_offloaded = -1;
 // this constant is core
 #define ALPHA (double)(1.8)
 const double one_plus_alpha = (1 + ALPHA);
-
-
 
 void whoami(unsigned my_id){
     AUDIT printf("just audit whoami: %u\n",my_id);
@@ -94,7 +88,7 @@ int queue_init(void){
             head->timestamp = -1;//setup initial timestamp value
             tail->timestamp = -1;
             queue[j][i].num_events = 0; // setup intial number of events
-			queue[j][i].mean_time = 1;
+			queue[j][i].mean_time = 0;
 
             pthread_spin_init(&locks[j][i].lock,PTHREAD_PROCESS_PRIVATE);
         }
@@ -118,13 +112,18 @@ void update_timing(void){
         printf("updating timing - current min is %e - current max is %e - current index is %d\n",current_min_limit,current_max_limit, current_index);
         fflush(stdout);
     }
-
-
+#ifndef NUMA_BALANCING
     put_ID = 0;
 	get_ID = 0;
-	total_workload = 0;
+    available_ID = 0;
+#else
+    for (j = 0; j < TOT_NUMA_NODES; j++){
+            put_IDs[j] = 0;
+            get_IDs[j] = 0;
+            available_IDs[j] = 0;
+        }
+#endif
 	processed_IDs = 0;
-	available_ID = 0;
 	total_worktime[prev_index] = 0;
     if(!pending_events) end = 1;
 }
@@ -240,7 +239,6 @@ void fallback_check(void){
             temp->next->prev = temp;//relink the previous elements
             temp->prev = current;
             __sync_fetch_and_add(&queue[dest][index].num_events, 1); // inc the number of the events in the slot from the fallback queue
-            // TODO: PARSIR-1
             __sync_fetch_and_add(&total_worktime[index], queue[dest][index].num_events * queue[dest][index].mean_time);
             pthread_spin_unlock(&locks[dest][index].lock);
 
@@ -287,7 +285,7 @@ long long primary_ID_acquisition(){
 #else
 retry_numa_pa:
     // numa aware primary ID acquisition
-    ID = __sync_fetch_and_add(&object_identifiers_vector[myNUMAindex], 1); 
+    ID = __sync_fetch_and_add(&available_IDs[myNUMAindex], 1); 
     if (ID >= _c[myNUMAindex]){
 			if(stealNUMAindex < TOT_NUMA_NODES){
 				stealNUMAindex++;
@@ -328,7 +326,7 @@ long long secondary_ID_acquisition(long long *outcome){
     long long ID;
 #ifndef NUMA_BALANCING
     index = get_ID;
-    if (index == put_ID)
+    if (index >= put_ID)
 #else
 retry_numa_sa:
     // numa aware secondary ID acquisition
@@ -386,10 +384,9 @@ long long ID_read_retry(long long *outcome, long long index){
 #else
     if (secondary_IDs[myNUMAindex][index] == NO_ID) // NO_ID)
 #endif
-
     {
         *outcome = NOT_YET_WRITTEN; // NOT_YET_WRITTEN;
-        return NO_ID;     // NO_ID;
+        return NO_ID_AVAILABLE;     // NO_ID; maybe NO_ID_AVAILABLE to avoid issue
     }
     else
     {
@@ -420,7 +417,7 @@ queue_elem * queue_extract(){
 
 start:
 
-	if (target != -1){
+	if (target != NO_ID){
 		goto workload_process;
 	}
 
@@ -429,8 +426,8 @@ start:
 		if (ID == NO_ID_AVAILABLE) break;
 		if (ID != _ID_offloaded){
 
-			__sync_fetch_and_add(&processed_IDs, 1);
 			if (ID < OBJECTS){
+                __sync_fetch_and_add(&processed_IDs, 1);
 				target = ID;
 				//_to_process = 1;
 				took_tick(&_start_time);
@@ -457,15 +454,15 @@ start:
 			index = ID;
 				do{
 					ID = ID_read_retry(&outcome, index);
+                    
 					//here you can insert any housekkeping task
 					//that cna be executed while the ID to be
 					//read is actually witten
 				}while(outcome != WRITTEN);
 		}
 
-		__sync_fetch_and_add(&processed_IDs,1);
-
 		if (ID < OBJECTS){
+            __sync_fetch_and_add(&processed_IDs, 1);
 			target = ID;
 			//_to_process = 1;
 			took_tick(&_start_time);
@@ -477,9 +474,12 @@ start:
 		printf("found empty slot with index %d\n",index);
 		fflush(stdout);
 	}
-
-
-	if( barrier()){
+#ifndef BARRIER_TIMER
+	if( barrier())
+#else
+    if (barrier_timer())
+#endif
+    {
 		update_timing();//this call updates the queue layout and releases the objects taken by threads in the last epoch
 	}
 
@@ -490,8 +490,10 @@ start:
 	target = -1;
 	_ID_offloaded = -1;
 	//reset stuff for NUMA aware workload distribution
+#ifdef NUMA_BALANCING
 	myNUMAindex = myNUMAnode;
 	stealNUMAindex = 0;
+#endif
 	fallback_check();
 	goto start;
 
@@ -503,11 +505,12 @@ workload_process:
 	pthread_spin_lock(&locks[target][index].lock);
 
 	if( head->next == tail) { //the current slot is empty
-				// updating the means the events
+		// updating the means the events
 		next_index = (index + 1) % NUM_SLOTS;
-        // TODO: mean time calculation check
-		EN_i = (_end_time - _start_time) / (queue[target][index].num_events + 1) // to avoid division by zero
-			/ (double)SLOT_LEN;
+		took_tick(&_end_time);
+        
+		EN_i = (_end_time - _start_time) / (queue[target][index].num_events + 1); // to avoid division by zero;
+        printf("EN_i is %lld\n", EN_i);
 		queue[target][next_index].mean_time = EN_i;
 
 		EN_i = EN_i * (queue[target][index].num_events + 1);
@@ -517,11 +520,10 @@ workload_process:
 		queue[target][index].num_events = 0;
 
 		pthread_spin_unlock(&locks[target][index].lock);
-		took_tick(&_end_time);
 		if (end){
 		       	return NULL;
 		}
-		target = -1;
+		target = NO_ID;
 
 		goto start;
 

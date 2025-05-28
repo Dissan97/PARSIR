@@ -314,7 +314,12 @@ redo:
 			printf("found empty slot with index %d\n",index);
 			fflush(stdout);
 		}
-		if( barrier()){
+#ifndef BARRIER_TIMER
+	if( barrier())
+#else
+    if (barrier_timer())
+#endif
+		{
 			update_timing();//this call updates the queue layout and releases the objects taken by threads in the last epoch
 		}
 

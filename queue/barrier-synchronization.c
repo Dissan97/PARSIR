@@ -69,7 +69,7 @@ int barrier_timer(void) {
 
         if (record >= MEAN_TIME_NUM) {
             mean_waiting_time = (double)recorded_nano / (double)record;
-            printf("Timer round %lu: mean waiting time = %.2f ns\n", timer_count + 1, mean_waiting_time);
+            printf("Timer round %lu: mean waiting time = %.3f ns\n", timer_count + 1, mean_waiting_time);
 
             // Reset stats
             record = 0;
