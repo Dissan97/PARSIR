@@ -1,5 +1,5 @@
 # ====== Configuration ======
-FLAGS     = -DNUMA_BALANCING #-DNUMA_UBIQUITOUS
+FLAGS     = #-DNUMA_BALANCING -DNUMA_UBIQUITOUS
 AFLAGS    = -DSYSCALL_NUMBER=134
 HWSETUP   = -DMEM_NODES=2
 QUEUE_IMPL ?= DEFAULT
@@ -7,9 +7,19 @@ QUEUE_IMPL ?= DEFAULT
 # ====== Queue source selection ======
 ifeq ($(QUEUE_IMPL),LPTF)
   QUEUE_SRC = ../queue/queue_LPTF.c
+  OUTPUT_NAME = -LPTF
 else
   QUEUE_SRC = ../queue/queue.c
+  OUTPUT_NAME = -ORIGIN
 endif
+
+ifdef NUMA
+	FLAGS += -DNUMA_BALANCING
+	OUTPUT_NAME := $(OUTPUT_NAME)-NUMA
+endif
+
+
+
 
 # ====== Targets ======
 all: runtime
@@ -37,8 +47,8 @@ rm-LKM:
 
 pcs: runtime
 	make -C ../models/pcs _FLAGS="$(FLAGS)" _HWSETUP="$(HWSETUP)"
-	gcc -o ../bin/PARSIR-simulator ../lib/PARSIR-runtime.o -I ../include -lpthread -lnuma ../models/pcs/pcs.o -lm
+	gcc -o ../bin/PARSIR-simulator-pcs$(OUTPUT_NAME) ../lib/PARSIR-runtime.o -I ../include -lpthread -lnuma ../models/pcs/pcs.o -lm
 
 highway: runtime
 	make -C ../models/highway _FLAGS="$(FLAGS)" _HWSETUP="$(HWSETUP)"
-	gcc -g -o ../bin/PARSIR-simulator ../lib/PARSIR-runtime.o -I ../include -lpthread -lnuma ../models/highway/highway.o
+	gcc -g -o ../bin/PARSIR-simulator-highway$(OUTPUT_NAME) ../lib/PARSIR-runtime.o -I ../include -lpthread -lnuma ../models/highway/highway.o
