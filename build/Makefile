@@ -18,8 +18,14 @@ ifdef NUMA
 	OUTPUT_NAME := $(OUTPUT_NAME)-NUMA
 endif
 
+# ====== Optional build-time parameters ======
+THREADS ?= 2
+LOOKAHEAD ?= 1.0
+OBJECTS ?= 4096
 
-
+FLAGS += -DTHREADS=$(THREADS)
+FLAGS += -DLOOKAHEAD=$(LOOKAHEAD)
+FLAGS += -DOBJECTS=$(OBJECTS)
 
 # ====== Targets ======
 all: runtime
