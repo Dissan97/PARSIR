@@ -25,7 +25,8 @@ typedef struct _slot{
 #ifdef WORKLOAD_DISTRIBUTION
     // number of events in the slot
 	unsigned long long __attribute__((aligned(64))) num_events;
-	unsigned long long __attribute__((aligned(64))) mean_time;
+    // trace the mean time of the Object events in the slot
+	unsigned long long __attribute__((aligned(64))) event_mean_time;
 #endif
 } slot;
 
