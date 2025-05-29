@@ -43,14 +43,14 @@ __thread int TOT_NUMA_NODES;
 long long put_ID __attribute__((aligned(64))) = 0;
 long long get_ID __attribute__((aligned(64))) = 0;
 long long available_ID __attribute__((aligned(64))) = 0;
-long long processed_IDs __attribute__((aligned(64))) = 0;
-long long secondary_IDs[OBJECTS] __attribute__((aligned(64))) = {[0 ... OBJECTS - 1] 0};
+long long secondary_IDs[OBJECTS] __attribute__((aligned(64))) = {[0 ... OBJECTS - 1] NO_ID};
 #else
 long long put_IDs [MAX_NUMA_NODES] __attribute__((aligned(64))) = { [0 ... MAX_NUMA_NODES-1] 0};
 long long get_IDs [MAX_NUMA_NODES] __attribute__((aligned(64))) = { [0 ... MAX_NUMA_NODES-1] 0};
 long long available_IDs [MAX_NUMA_NODES] __attribute__((aligned(64))) = { [0 ... MAX_NUMA_NODES-1] 0};
-long long secondary_IDs [MAX_NUMA_NODES][OBJECTS] __attribute__((aligned(64))) = { [0 ... MAX_NUMA_NODES-1][0 ... OBJECTS] 0};
+long long secondary_IDs [MAX_NUMA_NODES][OBJECTS] __attribute__((aligned(64)));
 #endif
+long long processed_IDs __attribute__((aligned(64))) = 0;
 unsigned long long total_worktime[NUM_SLOTS] __attribute__((aligned(64))) = { [0 ... NUM_SLOTS - 1] 0};
 
 __thread long long _start_time = 0;
@@ -93,6 +93,18 @@ int queue_init(void){
             pthread_spin_init(&locks[j][i].lock,PTHREAD_PROCESS_PRIVATE);
         }
     }
+#ifndef NUMA_BALANCING
+    for (i = 0; i < OBJECTS; i++){
+        secondary_IDs[j] = NO_ID; // NO_ID
+    }
+#else
+    for (i = 0; i < MAX_NUMA_NODES; i++){
+        for (j = 0; j < OBJECTS; j++){
+            secondary_IDs[i][j] = NO_ID; // NO_ID
+        }
+    }
+#endif
+
     for (i = 0; i < NUM_SLOTS; i++){
 		total_worktime[i] = 0;
     }
@@ -271,7 +283,7 @@ void offload(long long ID)
     _ID_offloaded = __sync_fetch_and_add(&put_ID, 1);
     secondary_IDs[_ID_offloaded] = ID;
 #else
-    _ID_offloaded = __sync_fetch_and_add(&put_ID[myNUMAindex], 1);
+    _ID_offloaded = __sync_fetch_and_add(&put_IDs[myNUMAindex], 1);
     secondary_IDs[myNUMAindex][_ID_offloaded] = ID;
 #endif
 
@@ -439,7 +451,7 @@ start:
 
 #ifdef NUMA_BALANCING
     // reset numan aware indexes
-    myNUMAindex = myNUMAnode
+    myNUMAindex = myNUMAnode;
     stealNUMAindex = 0;
 #endif
 

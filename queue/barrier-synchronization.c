@@ -73,7 +73,7 @@ int barrier_timer(void) {
         if (record >= MEAN_TIME_NUM) {
             end_round = end_time;
             mean_waiting_time = (double)recorded_nano / (double)record;
-            printf("Timer round %lu: mean waiting time=%.3f cumulative_time=%lld ns round_duration=%ld ms\n", timer_count + 1, 
+            printf("Timer round %lu: mean waiting time=%.3f cumulative_time=%ld ns round_duration=%ld ms\n", timer_count + 1, 
                 mean_waiting_time, recorded_nano, (end_round - start_round) / 1000000L);
             start_round = end_time;
 
