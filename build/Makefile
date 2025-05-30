@@ -18,6 +18,13 @@ ifdef NUMA
 	OUTPUT_NAME := $(OUTPUT_NAME)-NUMA
 endif
 
+ifdef UNBALANCE
+	FLAGS += -DUNBALANCE
+	OUTPUT_NAME := $(OUTPUT_NAME)-UNBALANCE
+else
+	OUTPUT_NAME := $(OUTPUT_NAME)-BALANCE
+endif
+
 # ====== Optional build-time parameters ======
 THREADS ?= 2
 LOOKAHEAD ?= 1.0

@@ -11,7 +11,7 @@ lp_state_type* states[OBJECTS];
 
 #define state states[me]
 
-#define UNBALANCE
+//#define UNBALANCE
 
 
 //this is a macro for setting up multiple mmapped zones at distance displacement, e.g. 2<<11
