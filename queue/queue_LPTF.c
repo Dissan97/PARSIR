@@ -513,8 +513,9 @@ workload_process:
 
 	if( head->next == tail) { //the current slot is empty
 		// updating the mean time of the events for the current object for next epoch
-		next_index = (index + 1) % NUM_SLOTS;
 		took_tick(&_end_time);
+
+		next_index = (index + 1) % NUM_SLOTS;
 
 		// etx calculation
 		EN_i = (_end_time - _start_time) / (queue[target][index].num_events + 1); // to avoid division by zero 0 events

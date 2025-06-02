@@ -32,22 +32,24 @@ int barrier(void){
 #ifdef BARRIER_TIMER
 #include <time.h>
 
-
-#define MEAN_TIME_NUM (NUM_SLOTS)
+#ifndef MEAN_TIME_NUM
+#define MEAN_TIME_NUM (NUM_SLOTS / 2)
+#endif
 
 long recorded_nano = 0;
 double mean_waiting_time = 0.0;
 unsigned long record = 0;
-unsigned long timer_count = 0;
-
+unsigned long round_number = 0;
+long start_round = 0;
+long end_round;
+long min_waiting_time = (1L << 31) - 1;
+long max_waiting_time = -1;
 long now_nsec() {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return ts.tv_sec * 1000000000L + ts.tv_nsec;
 }
 
-long start_round = 0;
-long end_round;
 
 int barrier_timer(void) {
     int ret;
@@ -66,6 +68,12 @@ int barrier_timer(void) {
     if (last_thread == THREADS - 1) {
         long end_time = now_nsec();
         long waiting_time = end_time - start_time;
+        if (waiting_time < min_waiting_time) {
+            min_waiting_time = waiting_time;
+        }
+        if (waiting_time > max_waiting_time) {
+            max_waiting_time = waiting_time;
+        }
         
         recorded_nano += waiting_time;
         record++;
@@ -73,14 +81,22 @@ int barrier_timer(void) {
         if (record >= MEAN_TIME_NUM) {
             end_round = end_time;
             mean_waiting_time = (double)recorded_nano / (double)record;
-            printf("Timer round %lu: mean waiting time=%.3f cumulative_time=%ld ns round_duration=%ld ms\n", timer_count + 1, 
-                mean_waiting_time, recorded_nano, (end_round - start_round) / 1000000L);
+            printf("Round %lu barrier called=%lu times\n: Mean waiting time: %.3f ns, Min: %ld ns, Max: %ld ns, barrier_comulative_time=%.3f us, round_time=%.3f s\n",
+                round_number, 
+                record,
+                mean_waiting_time,
+                min_waiting_time,
+                max_waiting_time,
+                (double)recorded_nano / 1000.0,
+                (double)(end_round - start_round) / 1000000000.0
+            );
             start_round = end_time;
-
             // Reset stats
             record = 0;
+            max_waiting_time = -1;
+            min_waiting_time = (1L << 31) - 1;
             recorded_nano = 0;
-            timer_count++;
+            round_number++;
         }
     }
 
