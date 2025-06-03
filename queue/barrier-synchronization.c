@@ -33,7 +33,7 @@ int barrier(void){
 #include <time.h>
 
 #ifndef MEAN_TIME_NUM
-#define MEAN_TIME_NUM (NUM_SLOTS / 2)
+#define MEAN_TIME_NUM (NUM_SLOTS)
 #endif
 
 long recorded_nano = 0;
@@ -81,7 +81,7 @@ int barrier_timer(void) {
         if (record >= MEAN_TIME_NUM) {
             end_round = end_time;
             mean_waiting_time = (double)recorded_nano / (double)record;
-            printf("Round %lu barrier called=%lu times\n: Mean waiting time: %.3f ns, Min: %ld ns, Max: %ld ns, barrier_comulative_time=%.3f us, round_time=%.3f s\n",
+            printf("Round %lu barrier called=%lu times:\n Mean waiting time: %.3f ns, Min: %ld ns, Max: %ld ns, barrier_comulative_time=%.3f us, round_time=%.3f s\n",
                 round_number, 
                 record,
                 mean_waiting_time,

@@ -70,7 +70,6 @@ void whoami(unsigned my_id){
     myNUMAindex = myNUMAnode = get_NUMAnode();
     stealNUMAindex = 0;
     TOT_NUMA_NODES = get_totNUMAnodes();
-    printf("thread %u called %s\n", me, __func__);
 }
 
 int queue_init(void){
@@ -131,7 +130,7 @@ void update_timing(void){
 	get_ID = 0;
     available_ID = 0;
 #else
-    for (j = 0; j < TOT_NUMA_NODES; j++){
+    for (j = 0; j < MAX_NUMA_NODES; j++){
             put_IDs[j] = 0;
             get_IDs[j] = 0;
             available_IDs[j] = 0;
@@ -272,7 +271,9 @@ long long primary_ID_acquisition(){
     ID = __sync_fetch_and_add(&available_ID, 1);
 #else
 // primary id acquisition label
-retry_numa_pa:
+    myNUMAindex = myNUMAnode;
+    stealNUMAindex = 0;
+retry_primary:
     // numa aware primary ID acquisition
     ID = __sync_fetch_and_add(&available_IDs[myNUMAindex], 1); 
     
@@ -280,7 +281,7 @@ retry_numa_pa:
 			if(stealNUMAindex < TOT_NUMA_NODES){
 				stealNUMAindex++;
 				myNUMAindex = (myNUMAindex+1)%TOT_NUMA_NODES;
-				goto retry_numa_pa;
+				goto retry_primary;
 			}
 			else ID = OBJECTS;
 		}
@@ -334,16 +335,14 @@ long long secondary_ID_acquisition(long long *outcome){
     if (index >= put_ID)
 #else
 // secondary id acquisition label
-retry_numa_sa:
-    // numa aware secondary ID acquisition
-    index = get_IDs[myNUMAindex];
-    if (stealNUMAindex < TOT_NUMA_NODES){
-        if (index == put_IDs[myNUMAindex]){
+    for (stealNUMAindex = 0; stealNUMAindex < TOT_NUMA_NODES; stealNUMAindex++){
+        if (get_IDs[myNUMAindex] >= put_IDs[myNUMAindex]){
             myNUMAindex = (myNUMAindex + 1) % TOT_NUMA_NODES;
-            stealNUMAindex++;       
-            goto retry_numa_sa;         
+            continue;
         }
-    }else
+        break;
+    }
+    if (stealNUMAindex >= TOT_NUMA_NODES)
 #endif
     {
         *outcome = NO_ID_AVAILABLE; //NO_ID_AVAILABLE;
@@ -430,16 +429,15 @@ start:
 
 	while (1){
 		ID = primary_ID_acquisition();
-		if (ID == NO_ID_AVAILABLE) break;
+		if (ID >= NO_ID_AVAILABLE) break;
 		if (ID != _ID_offloaded){
 
-			if (ID < OBJECTS){
-                __sync_fetch_and_add(&processed_IDs, 1);
-				target = ID;
-				//_to_process = 1;
-				took_tick(&_start_time);
-				goto workload_process;
-			}
+            __sync_fetch_and_add(&processed_IDs, 1);
+            target = ID;
+            //_to_process = 1;
+            took_tick(&_start_time);
+            goto workload_process;
+			
 			printf("ERROR: never be here\n");
 		}
 	}
@@ -514,18 +512,13 @@ workload_process:
 	if( head->next == tail) { //the current slot is empty
 		// updating the mean time of the events for the current object for next epoch
 		took_tick(&_end_time);
-
 		next_index = (index + 1) % NUM_SLOTS;
-
 		// etx calculation
 		EN_i = (_end_time - _start_time) / (queue[target][index].num_events + 1); // to avoid division by zero 0 events
-        
 		queue[target][next_index].event_mean_time = EN_i;
-
 		__sync_fetch_and_add(&total_worktime[next_index], EN_i);
         // reset the current object events
 		queue[target][index].num_events = 0;
-
 		pthread_spin_unlock(&locks[target][index].lock);
 		if (end){
 		       	return NULL;
