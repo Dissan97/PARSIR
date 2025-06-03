@@ -58,7 +58,9 @@ __thread long long _end_time = 0;
 __thread long long _ID_offloaded = -1;
 
 // this constant is core
+#ifndef ALPHA
 #define ALPHA (double)(1.8)
+#endif
 const double one_plus_alpha = (1 + ALPHA);
 
 void whoami(unsigned my_id){
@@ -130,7 +132,7 @@ void update_timing(void){
 	get_ID = 0;
     available_ID = 0;
 #else
-    for (j = 0; j < MAX_NUMA_NODES; j++){
+    for (j = 0; j < TOT_NUMA_NODES; j++){
             put_IDs[j] = 0;
             get_IDs[j] = 0;
             available_IDs[j] = 0;
@@ -270,24 +272,19 @@ long long primary_ID_acquisition(){
 #ifndef NUMA_BALANCING
     ID = __sync_fetch_and_add(&available_ID, 1);
 #else
-// primary id acquisition label
-    myNUMAindex = myNUMAnode;
-    stealNUMAindex = 0;
-retry_primary:
     // numa aware primary ID acquisition
-    ID = __sync_fetch_and_add(&available_IDs[myNUMAindex], 1); 
+    myNUMAindex = myNUMAnode;
+    for (stealNUMAindex = 0; stealNUMAindex < TOT_NUMA_NODES; stealNUMAindex++){
     
-    if (ID >= _c[myNUMAindex]){
-			if(stealNUMAindex < TOT_NUMA_NODES){
-				stealNUMAindex++;
-				myNUMAindex = (myNUMAindex+1)%TOT_NUMA_NODES;
-				goto retry_primary;
-			}
-			else ID = OBJECTS;
-		}
-		else{
-			ID += _min[myNUMAindex];
-		}
+        myNUMAindex = (stealNUMAindex + myNUMAnode) % TOT_NUMA_NODES;
+        ID = __sync_fetch_and_add(&available_IDs[myNUMAindex], 1); 
+        if (ID >= _c[myNUMAindex]){
+                continue;
+        }
+        ID += _min[myNUMAindex];
+        break;
+    }
+    if (stealNUMAindex >= TOT_NUMA_NODES) ID = OBJECTS; // NO_ID_AVAILABLE    
 #endif
 
     if (ID >= OBJECTS)
@@ -304,7 +301,7 @@ retry_primary:
                                     NUM OBJS
         *  is_ligth(ID)?                                    
      */
-    if (!(queue[ID][my_index].num_events * queue[ID][my_index].event_mean_time < one_plus_alpha * (
+    if ((queue[ID][my_index].num_events * queue[ID][my_index].event_mean_time >= one_plus_alpha * (
 		total_worktime[my_index] / OBJECTS
 	 )))
     {
@@ -335,7 +332,10 @@ long long secondary_ID_acquisition(long long *outcome){
     if (index >= put_ID)
 #else
 // secondary id acquisition label
+    myNUMAindex = myNUMAnode;
     for (stealNUMAindex = 0; stealNUMAindex < TOT_NUMA_NODES; stealNUMAindex++){
+        index = get_IDs[myNUMAindex];
+        
         if (get_IDs[myNUMAindex] >= put_IDs[myNUMAindex]){
             myNUMAindex = (myNUMAindex + 1) % TOT_NUMA_NODES;
             continue;
@@ -437,16 +437,8 @@ start:
             //_to_process = 1;
             took_tick(&_start_time);
             goto workload_process;
-			
-			printf("ERROR: never be here\n");
 		}
 	}
-
-#ifdef NUMA_BALANCING
-    // reset numan aware indexes for secondary ID acqusition
-    myNUMAindex = myNUMAnode;
-    stealNUMAindex = 0;
-#endif
 
 	while(processed_IDs < OBJECTS){
 		ID = secondary_ID_acquisition(&outcome);
@@ -459,7 +451,6 @@ start:
 			index = ID;
 				do{
 					ID = ID_read_retry(&outcome, index);
-                    
 					//here you can insert any housekkeping task
 					//that cna be executed while the ID to be
 					//read is actually witten
