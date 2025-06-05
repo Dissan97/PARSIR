@@ -35,6 +35,7 @@ typedef struct _slot{
 
 enum OUTCOME {
     NO_ID_AVAILABLE = OBJECTS,
+    ID_OFFLOADED = -2,
     NO_ID = -1,
     WRITTEN = 0,
     NEED_TO_RETRY = 2,

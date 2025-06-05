@@ -25,6 +25,10 @@ else
 	OUTPUT_NAME := $(OUTPUT_NAME)-BALANCE
 endif
 
+ifdef ALPHA
+	FLAGS += -DALPHA=ALPHA
+endif
+
 # ====== Optional build-time parameters ======
 THREADS ?= 2
 LOOKAHEAD ?= 1.0

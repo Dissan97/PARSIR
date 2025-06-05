@@ -5,7 +5,7 @@
 #include <setup.h>
 #include "memory.h"
 #include <sys/signal.h>
-
+#include <assert.h>
 #ifdef WORKLOAD_DISTRIBUTION
 #include <stdbool.h>
 #endif
@@ -40,28 +40,32 @@ __thread int TOT_NUMA_NODES;
 
 // this have to be per_thread variable because each thread is pinned to a specific cpu. to avoid inconsistent tick took
 #ifndef NUMA_BALANCING
-long long put_ID __attribute__((aligned(64))) = 0;
-long long get_ID __attribute__((aligned(64))) = 0;
-long long available_ID __attribute__((aligned(64))) = 0;
-long long secondary_IDs[OBJECTS] __attribute__((aligned(64))) = {[0 ... OBJECTS - 1] NO_ID};
+volatile long long put_ids __attribute__((aligned(64))) = 0;
+volatile long long get_ids __attribute__((aligned(64))) = 0;
+/** Primary pool PPOOL */
+volatile long long object_identifiers __attribute__((aligned(64))) = 0;
+/** Secondary pool SPOOL */
+volatile long long secondary_object_identifiers[OBJECTS] __attribute__((aligned(64))) = {[0 ... OBJECTS - 1] NO_ID};
 #else
-long long put_IDs [MAX_NUMA_NODES] __attribute__((aligned(64))) = { [0 ... MAX_NUMA_NODES-1] 0};
-long long get_IDs [MAX_NUMA_NODES] __attribute__((aligned(64))) = { [0 ... MAX_NUMA_NODES-1] 0};
-long long available_IDs [MAX_NUMA_NODES] __attribute__((aligned(64))) = { [0 ... MAX_NUMA_NODES-1] 0};
-long long secondary_IDs [MAX_NUMA_NODES][OBJECTS] __attribute__((aligned(64)));
+volatile long long put_ids_vector [MAX_NUMA_NODES] __attribute__((aligned(64))) = { [0 ... MAX_NUMA_NODES-1] 0};
+volatile long long get_ids_vector [MAX_NUMA_NODES] __attribute__((aligned(64))) = { [0 ... MAX_NUMA_NODES-1] 0};
+/** Primary pool PPOOLS */
+volatile long long object_identifiers_vector [MAX_NUMA_NODES] __attribute__((aligned(64))) = { [0 ... MAX_NUMA_NODES-1] 0};
+/** Secondary pool SPOOLS */
+volatile long long secondary_object_identifiers_vector [MAX_NUMA_NODES][OBJECTS] __attribute__((aligned(64)));
 #endif
-long long processed_IDs __attribute__((aligned(64))) = 0;
-unsigned long long total_worktime[NUM_SLOTS] __attribute__((aligned(64))) = { [0 ... NUM_SLOTS - 1] 0};
+volatile long long processed_IDs __attribute__((aligned(64))) = 0;
+volatile unsigned long long total_worktime[NUM_SLOTS] __attribute__((aligned(64))) = { [0 ... NUM_SLOTS - 1] 0};
 
 __thread long long _start_time = 0;
 __thread long long _end_time = 0;
-__thread long long _ID_offloaded = -1;
+
 
 // this constant is core
 #ifndef ALPHA
-#define ALPHA (double)(1.8)
+#define ALPHA (double)(0.15)
 #endif
-const double one_plus_alpha = (1 + ALPHA);
+
 
 void whoami(unsigned my_id){
     AUDIT printf("just audit whoami: %u\n",my_id);
@@ -97,14 +101,14 @@ int queue_init(void){
     }
 #ifndef NUMA_BALANCING
     for (i = 0; i < OBJECTS; i++){
-        secondary_IDs[i] = NO_ID; // NO_ID
+        secondary_object_identifiers[i] = NO_ID; // NO_ID
     }
 #else
     for (i = 0; i < MAX_NUMA_NODES; i++){
         for (j = 0; j < OBJECTS; j++){
-            secondary_IDs[i][j] = NO_ID; // NO_ID
+            secondary_object_identifiers_vector[i][j] = NO_ID; // NO_ID
         }
-        available_IDs[i] = 0;
+        object_identifiers_vector[i] = 0;
     }
 #endif
 
@@ -128,14 +132,14 @@ void update_timing(void){
         fflush(stdout);
     }
 #ifndef NUMA_BALANCING
-    put_ID = 0;
-	get_ID = 0;
-    available_ID = 0;
+    put_ids = 0;
+	get_ids = 0;
+    object_identifiers = 0;
 #else
     for (j = 0; j < TOT_NUMA_NODES; j++){
-            put_IDs[j] = 0;
-            get_IDs[j] = 0;
-            available_IDs[j] = 0;
+            put_ids_vector[j] = 0;
+            get_ids_vector[j] = 0;
+            object_identifiers_vector[j] = 0;
         }
 #endif
 	processed_IDs = 0;
@@ -214,7 +218,7 @@ int queue_insert(queue_elem * elem){
 
     return 0;
 }
-// TODO: manage the etx mean time addition when a new event is inserted
+
 void fallback_check(void){
     queue_elem * temp = fallback_queue.head;//the fallback_queue is __thread hence
     //we already run isolated on this queue
@@ -266,18 +270,21 @@ void fallback_check(void){
 }
 
 
-// TODO: check if this is NUMA aware
 long long primary_ID_acquisition(){
     long long ID;
+    long long index;
+    int i;
 #ifndef NUMA_BALANCING
-    ID = __sync_fetch_and_add(&available_ID, 1);
+    ID = __sync_fetch_and_add(&object_identifiers, 1);
+
+
 #else
     // numa aware primary ID acquisition
     myNUMAindex = myNUMAnode;
     for (stealNUMAindex = 0; stealNUMAindex < TOT_NUMA_NODES; stealNUMAindex++){
     
         myNUMAindex = (stealNUMAindex + myNUMAnode) % TOT_NUMA_NODES;
-        ID = __sync_fetch_and_add(&available_IDs[myNUMAindex], 1); 
+        ID = __sync_fetch_and_add(&object_identifiers_vector[myNUMAindex], 1); 
         if (ID >= _c[myNUMAindex]){
                 continue;
         }
@@ -301,24 +308,23 @@ long long primary_ID_acquisition(){
                                     NUM OBJS
         *  is_ligth(ID)?                                    
      */
-    if ((queue[ID][my_index].num_events * queue[ID][my_index].event_mean_time >= one_plus_alpha * (
+    if ((queue[ID][my_index].num_events * queue[ID][my_index].event_mean_time >= ALPHA * (
 		total_worktime[my_index] / OBJECTS
 	 )))
     {
-
         return ID; // the thread will simply
         // process the event of this object
     }
 
 	//offload(ID);
 #ifndef NUMA_BALANCING
-    _ID_offloaded = __sync_fetch_and_add(&put_ID, 1);
-    secondary_IDs[_ID_offloaded] = ID;
+    index = __sync_fetch_and_add(&put_ids, 1);
+    secondary_object_identifiers[index] = ID;
 #else
-    _ID_offloaded = __sync_fetch_and_add(&put_IDs[myNUMAindex], 1);
-    secondary_IDs[myNUMAindex][_ID_offloaded] = ID;
+    index = __sync_fetch_and_add(&put_ids_vector[myNUMAindex], 1);
+    secondary_object_identifiers_vector[myNUMAindex][index] = ID;
 #endif
-	return _ID_offloaded; //  the thread knows it will by using a per_thread variable
+	return ID_OFFLOADED; 
 	// need to eventually manage
 	// offloaded objects
 }
@@ -328,15 +334,15 @@ long long secondary_ID_acquisition(long long *outcome){
     long long index;
     long long ID;
 #ifndef NUMA_BALANCING
-    index = get_ID;
-    if (index >= put_ID)
+    index = get_ids;
+    if (index == put_ids)
 #else
 // secondary id acquisition label
     myNUMAindex = myNUMAnode;
     for (stealNUMAindex = 0; stealNUMAindex < TOT_NUMA_NODES; stealNUMAindex++){
-        index = get_IDs[myNUMAindex];
+        index = get_ids_vector[myNUMAindex];
         
-        if (get_IDs[myNUMAindex] >= put_IDs[myNUMAindex]){
+        if (get_ids_vector[myNUMAindex] >= put_ids_vector[myNUMAindex]){
             myNUMAindex = (myNUMAindex + 1) % TOT_NUMA_NODES;
             continue;
         }
@@ -346,23 +352,23 @@ long long secondary_ID_acquisition(long long *outcome){
 #endif
     {
         *outcome = NO_ID_AVAILABLE; //NO_ID_AVAILABLE;
-        return -1;
+        return NO_ID;
     }
 #ifndef NUMA_BALANCING
-    if (!__sync_bool_compare_and_swap(&get_ID, index, index + 1))
+    if (!__sync_bool_compare_and_swap(&get_ids, index, index + 1))
 #else
-    if (!__sync_bool_compare_and_swap(&get_IDs[myNUMAindex], index, index + 1))
+    if (!__sync_bool_compare_and_swap(&get_ids_vector[myNUMAindex], index, index + 1))
 #endif
     {
         *outcome = NEED_TO_RETRY; // NEED_TO_RETRY;
-        return -1;
+        return NO_ID;
     }
 
     //index++; // may be i need this index not the next
 #ifndef NUMA_BALANCING
-    if (secondary_IDs[index] == NO_ID) // NO_ID)
+    if (secondary_object_identifiers[index] == NO_ID) // NO_ID)
 #else
-    if (secondary_IDs[myNUMAindex][index] == NO_ID) // NO_ID)
+    if (secondary_object_identifiers_vector[myNUMAindex][index] == NO_ID) // NO_ID)
 #endif
     {
         *outcome = NOT_YET_WRITTEN; // NOT_YET_WRITTEN;
@@ -372,11 +378,11 @@ long long secondary_ID_acquisition(long long *outcome){
     {
         *outcome = WRITTEN; // WRITTEN;
 #ifndef NUMA_BALANCING
-        ID = secondary_IDs[index];
-        secondary_IDs[index] = NO_ID; // NO_ID;
+        ID = secondary_object_identifiers[index];
+        secondary_object_identifiers[index] = NO_ID; // NO_ID;
 #else
-        ID = secondary_IDs[myNUMAindex][index];
-        secondary_IDs[myNUMAindex][index] = NO_ID; // NO_ID;
+        ID = secondary_object_identifiers_vector[myNUMAindex][index];
+        secondary_object_identifiers_vector[myNUMAindex][index] = NO_ID; // NO_ID;
 #endif
         return ID;
     }
@@ -385,23 +391,23 @@ long long secondary_ID_acquisition(long long *outcome){
 long long ID_read_retry(long long *outcome, long long index){
     long long ID;
 #ifndef NUMA_BALANCING
-    if (secondary_IDs[index] == NO_ID) // NO_ID)
+    if (secondary_object_identifiers[index] == NO_ID) // NO_ID)
 #else
-    if (secondary_IDs[myNUMAindex][index] == NO_ID) // NO_ID)
+    if (secondary_object_identifiers_vector[myNUMAindex][index] == NO_ID) // NO_ID)
 #endif
     {
         *outcome = NOT_YET_WRITTEN; // NOT_YET_WRITTEN;
-        return NO_ID_AVAILABLE;     // NO_ID; maybe NO_ID_AVAILABLE to avoid issue
+        return NO_ID;     // NO_ID; maybe NO_ID_AVAILABLE to avoid issue
     }
     else
     {
         *outcome = WRITTEN; // WRITTEN;
 #ifndef NUMA_BALANCING
-        ID = secondary_IDs[index];
-        secondary_IDs[index] = NO_ID; // NO_ID;
+        ID = secondary_object_identifiers[index];
+        secondary_object_identifiers[index] = NO_ID; // NO_ID;
 #else
-        ID = secondary_IDs[myNUMAindex][index];
-        secondary_IDs[myNUMAindex][index] = NO_ID; // NO_ID;
+        ID = secondary_object_identifiers_vector[myNUMAindex][index];
+        secondary_object_identifiers_vector[myNUMAindex][index] = NO_ID; // NO_ID;
 #endif
         return ID;
     }
@@ -410,12 +416,13 @@ long long ID_read_retry(long long *outcome, long long index){
 
 queue_elem * queue_extract(){
 
-    int index;
+    
 
     queue_elem * head;
     queue_elem * tail;
     queue_elem * elem;
-    long long ID;
+    volatile long long ID;
+    long long index;
 	long long outcome;
 	long long EN_i=0;
 	int next_index;
@@ -423,28 +430,46 @@ queue_elem * queue_extract(){
     
 start:
 
-	if (target != NO_ID){
-		goto workload_process;
+	if (target != NO_ID){	
+        index = my_index;
+	    head = &queue[target][index].head;
+	    tail = &queue[target][index].tail;
+        if (head->next == tail) { //the current slot is empty
+            if (end){
+                return NULL;
+            }
+            // updating the mean time of the events for the current object for next epoch
+            took_tick(&_end_time);
+            next_index = (index + 1) % NUM_SLOTS;
+            // etx calculation
+            EN_i = (_end_time - _start_time) / (queue[target][index].num_events + 1); // to avoid division by zero 0 events
+            queue[target][next_index].event_mean_time = EN_i;
+            __sync_fetch_and_add(&total_worktime[next_index], EN_i);
+            // reset the current object events
+            queue[target][index].num_events = 0;
+            target = NO_ID;
+            goto start;
+        }
+		goto process_current_epoch_events;
 	}
 
 	while (1){
 		ID = primary_ID_acquisition();
 		if (ID >= NO_ID_AVAILABLE) break;
-		if (ID != _ID_offloaded){
+		if (ID != ID_OFFLOADED){
 
             __sync_fetch_and_add(&processed_IDs, 1);
             target = ID;
-            //_to_process = 1;
             took_tick(&_start_time);
-            goto workload_process;
+            goto start;
 		}
 	}
-
+    long long times = 0;
 	while(processed_IDs < OBJECTS){
 		ID = secondary_ID_acquisition(&outcome);
 
 		if (outcome == NO_ID_AVAILABLE){
-			break;
+			continue;
 		} else if (outcome == NEED_TO_RETRY){
 			continue;
 		} else if (outcome == NOT_YET_WRITTEN){
@@ -456,14 +481,12 @@ start:
 					//read is actually witten
 				}while(outcome != WRITTEN);
 		}
-
-		if (ID < OBJECTS){
-            __sync_fetch_and_add(&processed_IDs, 1);
-			target = ID;
-			//_to_process = 1;
-			took_tick(&_start_time);
-			goto workload_process;
-		}
+        //assert (ID >= 0 && ID < OBJECTS);
+        __sync_fetch_and_add(&processed_IDs, 1);
+        target = ID;
+        took_tick(&_start_time);
+        goto start;
+		
 	}
 
 	AUDIT{
@@ -483,8 +506,7 @@ start:
 
 	my_index = current_index;
 
-	target = -1;
-	_ID_offloaded = -1;
+	target = NO_ID;
 	//reset stuff for NUMA aware workload distribution
 #ifdef NUMA_BALANCING
 	myNUMAindex = myNUMAnode;
@@ -493,11 +515,9 @@ start:
 	fallback_check();
 	goto start;
 
-workload_process:
+process_current_epoch_events:
 
-	index = my_index;
-	head = &queue[target][index].head;
-	tail = &queue[target][index].tail;
+
 	pthread_spin_lock(&locks[target][index].lock);
 
 	if( head->next == tail) { //the current slot is empty
