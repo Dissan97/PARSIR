@@ -25,15 +25,14 @@ else
 	OUTPUT_NAME := $(OUTPUT_NAME)-BALANCE
 endif
 
-ifdef ALPHA
-	FLAGS += -DALPHA=ALPHA
-endif
+
 
 # ====== Optional build-time parameters ======
 THREADS ?= 2
 LOOKAHEAD ?= 1.0
 OBJECTS ?= 4096
-
+ALPHA ?= 0.1
+FLAGS += -DALPHA=$(ALPHA)
 FLAGS += -DTHREADS=$(THREADS)
 FLAGS += -DLOOKAHEAD=$(LOOKAHEAD)
 FLAGS += -DOBJECTS=$(OBJECTS)
