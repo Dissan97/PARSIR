@@ -490,7 +490,7 @@ start:
 	}
 
 	AUDIT{
-		printf("found empty slot with index %d\n",index);
+		printf("found empty slot with index %lld\n",index);
 		fflush(stdout);
 	}
 #ifndef BARRIER_TIMER

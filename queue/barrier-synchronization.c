@@ -81,14 +81,14 @@ int barrier_timer(void) {
         if (record >= MEAN_TIME_NUM) {
             end_round = end_time;
             mean_waiting_time = (double)recorded_nano / (double)record;
-            printf("Round %lu barrier called=%lu times:\n Mean waiting time: %.3f ns, Min: %ld ns, Max: %ld ns, barrier_comulative_time=%.3f us, round_time=%.3f s\n",
+            printf("Barrier stats: {\n\tRound: %lu,\n\tmeasure number: %lu,\n\tmin_barrier_time: %ld ns,\n\taverage_barrier_time: %.3f ns,\n\tmax_barrier_time: %ld ns,\n\tcumulative_barrier_time: %.3f ms,\n\tround_time: %.3f s\n}\n",
                 round_number, 
                 record,
-                mean_waiting_time,
                 min_waiting_time,
+                mean_waiting_time,
                 max_waiting_time,
-                (double)recorded_nano / 1000.0,
-                (double)(end_round - start_round) / 1000000000.0
+                (double)recorded_nano / 1.0e6,
+                (double)(end_round - start_round) / 1.0e9
             );
             start_round = end_time;
             // Reset stats
