@@ -3,7 +3,8 @@ FLAGS     = #-DNUMA_BALANCING -DNUMA_UBIQUITOUS
 AFLAGS    = -DSYSCALL_NUMBER=134
 HWSETUP   = -DMEM_NODES=2
 QUEUE_IMPL ?= DEFAULT
-
+NUMA ?= 0
+UNBALANCE ?= 0
 # ====== Queue source selection ======
 ifeq ($(QUEUE_IMPL),LPTF)
   QUEUE_SRC = ../queue/queue_LPTF.c
@@ -13,12 +14,12 @@ else
   OUTPUT_NAME = -ORIGIN
 endif
 
-ifdef NUMA
+ifeq ($(NUMA), 1)
 	FLAGS += -DNUMA_BALANCING
 	OUTPUT_NAME := $(OUTPUT_NAME)-NUMA
 endif
 
-ifdef UNBALANCE
+ifeq ($(UNBALANCE), 1)
 	FLAGS += -DUNBALANCE
 	OUTPUT_NAME := $(OUTPUT_NAME)-UNBALANCE
 else
@@ -28,9 +29,9 @@ endif
 
 
 # ====== Optional build-time parameters ======
-THREADS ?= 2
+THREADS ?= 40
 LOOKAHEAD ?= 1.0
-OBJECTS ?= 4096
+OBJECTS ?= 1024
 ALPHA ?= 0.1
 FLAGS += -DALPHA=$(ALPHA)
 FLAGS += -DTHREADS=$(THREADS)

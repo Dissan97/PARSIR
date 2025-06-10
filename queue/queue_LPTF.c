@@ -455,7 +455,7 @@ start:
 
 	while (1){
 		ID = primary_ID_acquisition();
-		if (ID >= NO_ID_AVAILABLE) break;
+		if (ID == NO_ID_AVAILABLE) break;
 		if (ID != ID_OFFLOADED){
 
             __sync_fetch_and_add(&processed_IDs, 1);

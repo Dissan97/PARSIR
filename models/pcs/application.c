@@ -110,7 +110,12 @@ void ProcessEvent(unsigned int me, double now, int event_type, void *the_event_c
 
 #ifdef UNBALANCE
 			state->ref_ta = state->ta = TA;
-			if(me < (OBJECTS >> 1)) state->ref_ta = state->ta = TA / 2;
+			//if(me > (OBJECTS >> 1)) state->ref_ta = state->ta = TA / 4;
+			if (me % 2 == 0) state->ref_ta = state->ta = TA / 4;
+			if (me % 5 == 0) state->ref_ta = state->ta = TA / 8;
+	
+
+
 #else
 			state->ref_ta = state->ta = TA;
 #endif
