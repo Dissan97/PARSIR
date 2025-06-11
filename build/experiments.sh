@@ -1,11 +1,14 @@
+xX#!/bin/bash
 
 declare lookaheads=(0.1 0.5 0.8 1.0)
-declare alphas=(0.1 0.5 1.0)
-declare objects=(512 1024 4096)
+declare alphas=(0.5 1.0 2.0 5.0)
+#declare objects=(512 1024 4096)
+declare objects=(1024 4096)
 declare queue=("ORIGIN" "LPTF")
 declare numa=("0" "1")
 declare balanced=("0" "1")
-declare models=("pcs" "highway")
+#declare models=("pcs" "highway")
+declare models=("pcs")
 balance="balanced"
 BALANCE="-BALANCE"
 NUMA=""
@@ -17,11 +20,15 @@ mkdir -p ../bin/simulation/balanced
 mkdir -p ../bin/simulation/unbalanced
 mkdir -p ../bin/simulation/logs
 
+
 for model in "${models[@]}"; do
   for lookahead in "${lookaheads[@]}"; do
     for alpha in "${alphas[@]}"; do
       for object in "${objects[@]}"; do
         for q in "${queue[@]}"; do
+          if [[ "$q" == "ORIGIN" && "$alpha" != "1.0" ]] ; then
+             continue
+          fi
           for n in "${numa[@]}"; do
             for b in "${balanced[@]}"; do
               if [[ $b -eq 0 ]]; then

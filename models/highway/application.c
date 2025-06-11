@@ -161,7 +161,8 @@ void ProcessEvent(unsigned int me, double now, int event_type, void *event_conte
 			i = 0;
 
 #ifdef UNBALANCE
-if(me < (OBJECTS >> 1)) i = 0; else i = (INITIAL_CARS >> 1); 
+//if(me < (OBJECTS >> 1)) i = 0; else i = (INITIAL_CARS >> 1); 
+if(me%16 == 0) i = 0; else i = (INITIAL_CARS >> 4); 
 #endif
 			for (;i<INITIAL_CARS;i++){
 
@@ -180,7 +181,8 @@ type_done_right:
 
 			i = 0; 
 #ifdef UNBALANCE
-if(me < (OBJECTS >> 1)) i = 0; else i = (INITIAL_CARS >> 1); 
+//if(me < (OBJECTS >> 1)) i = 0; else i = (INITIAL_CARS >> 1); 
+if(me%16 == 0) i = 0; else i = (INITIAL_CARS >> 4); 
 #endif
 			for (;i<INITIAL_CARS;i++){
 

@@ -104,7 +104,11 @@ int barrier_timer(void) {
     if (ret) era_counter = 0;
 
     int last_thread = __sync_fetch_and_add(&control_counter, 1);
-    if (last_thread == THREADS - 1) {
+    while (control_counter != THREADS);
+    __sync_fetch_and_add(&era_counter, 1);
+
+    //if (last_thread == THREADS - 1) {
+    if (ret) {
         long end_time = now_nsec();
         long delta = end_time - start_time;
 
@@ -153,7 +157,7 @@ int barrier_timer(void) {
                        "\"Batch2 (N=%d)\": { \"count\": %lu, \"min\": %ld, \"mean\": %.3f, \"max\": %ld, \"max-min\": %ld }, "
                        "\"Batch3 (N=%d)\": { \"count\": %lu, \"min\": %ld, \"mean\": %.3f, \"max\": %ld, \"max-min\": %ld }, "
                        "\"Global\": { \"count\": %lu, \"min\": %ld, \"mean\": %.3f, \"max\": %ld },"
-                       "\"Batch cumulative\": %ld ms, "
+                       "\"Batch cumulative\": %ld, "
                        "\"Total barrier's time\": %ld"
                        "}\n",
                        round_number,
@@ -176,8 +180,6 @@ int barrier_timer(void) {
         }
     }
 
-    while (control_counter != THREADS);
-    __sync_fetch_and_add(&era_counter, 1);
     return ret;
 }
 #endif
