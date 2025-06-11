@@ -151,15 +151,15 @@ int barrier_timer(void) {
                 double global_mean = (double)global_sum / global_count;
             
 
-                printf("Barrier measures: {"
-                       "\"Round\": %lu, "
-                       "\"Batch1 (N=%d)\": { \"count\": %lu, \"min\": %ld, \"mean\": %.3f, \"max\": %ld, \"max-min\": %ld }, "
-                       "\"Batch2 (N=%d)\": { \"count\": %lu, \"min\": %ld, \"mean\": %.3f, \"max\": %ld, \"max-min\": %ld }, "
-                       "\"Batch3 (N=%d)\": { \"count\": %lu, \"min\": %ld, \"mean\": %.3f, \"max\": %ld, \"max-min\": %ld }, "
-                       "\"Global\": { \"count\": %lu, \"min\": %ld, \"mean\": %.3f, \"max\": %ld },"
-                       "\"Batch cumulative\": %ld, "
-                       "\"Total barrier's time\": %ld"
-                       "}\n",
+                printf("{\"Barrier measures\": {"
+                                "\"Round\": %lu, "
+                                "\"Batch1 (N=%d)\": { \"count\": %lu, \"min\": %ld, \"mean\": %.3f, \"max\": %ld, \"max-min\": %ld }, "
+                                "\"Batch2 (N=%d)\": { \"count\": %lu, \"min\": %ld, \"mean\": %.3f, \"max\": %ld, \"max-min\": %ld }, "
+                                "\"Batch3 (N=%d)\": { \"count\": %lu, \"min\": %ld, \"mean\": %.3f, \"max\": %ld, \"max-min\": %ld }, "
+                                "\"Global\": { \"count\": %lu, \"min\": %ld, \"mean\": %.3f, \"max\": %ld }, "
+                                "\"Batch cumulative\": %ld, "
+                                "\"Total barrier's time\": %ld"
+                            "}}\n",
                        round_number,
                        BATCH1_SIZE, batch1.count, batch1.min, mean1, batch1.max, batch1.max - batch1.min,
                        BATCH2_SIZE, snapshot2.count, snapshot2.min, snapshot2.mean, snapshot2.max, snapshot2.max - snapshot2.min,
