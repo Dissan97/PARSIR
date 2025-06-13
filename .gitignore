@@ -57,3 +57,4 @@ setup-data
 .temp_local
 .vscode
 *.log
+.old_logs

@@ -1,9 +1,9 @@
 xX#!/bin/bash
 
-declare lookaheads=(0.1 0.5 0.8 1.0)
-declare alphas=(0.5 1.0 2.0 5.0)
+declare lookaheads=(0.1 0.5 0.8 1.0 2.0)
+declare alphas=(0.25 0.5 1.0 2.0 5.0)
 #declare objects=(512 1024 4096)
-declare objects=(1024 4096)
+declare objects=(1024 2048 4096)
 declare queue=("ORIGIN" "LPTF")
 declare numa=("0" "1")
 declare balanced=("0" "1")
