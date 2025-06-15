@@ -69,3 +69,7 @@ pcs: runtime
 highway: runtime
 	make -C ../models/highway _FLAGS="$(FLAGS)" _HWSETUP="$(HWSETUP)"
 	gcc -g -o ../bin/PARSIR-simulator-highway$(OUTPUT_NAME) ../lib/PARSIR-runtime.o -I ../include -lpthread -lnuma ../models/highway/highway.o
+
+phold: runtime
+	cd ../models/phold ; make
+	gcc -o ../bin/PARSIR-simulator-phold$(OUTPUT_NAME) ../lib/PARSIR-runtime.o -I../include -lpthread -lnuma ../models/phold/phold.o
