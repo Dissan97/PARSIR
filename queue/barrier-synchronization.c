@@ -150,7 +150,7 @@ int barrier_timer(void) {
             if (batch1.count >= BATCH1_SIZE) {
                 double mean1 = (double)batch1.sum / batch1.count;
                 double global_mean = (double)global_sum / global_count;
-#ifdef WORKLOAD_DISTRIBUTION
+#ifdef LPTF
                 long long sum = primary + secondary;
                 printf("primary %f - secondary %f\n", (float)(primary * 100 )/ (sum), (secondary * 100.0) / sum);
 #endif                

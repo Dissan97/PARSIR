@@ -1,3 +1,11 @@
+#ifndef WORLOAD_DISTRIBUTION
+#define WORLOAD_DISTRIBUTION
+#endif
+
+#ifndef LPTF
+#define LPTF
+#endif
+
 #include <queue.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -6,9 +14,7 @@
 #include "memory.h"
 #include <sys/signal.h>
 #include <assert.h>
-#ifdef WORKLOAD_DISTRIBUTION
 #include <stdbool.h>
-#endif
 
 slot queue[OBJECTS][NUM_SLOTS];
 lock_buffer locks[OBJECTS][NUM_SLOTS];

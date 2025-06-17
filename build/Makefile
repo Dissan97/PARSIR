@@ -11,6 +11,11 @@ NUM_BARRIER ?= -1
 ifeq ($(QUEUE_IMPL),LPTF)
   QUEUE_SRC = ../queue/queue_LPTF.c
   OUTPUT_NAME = -LPTF
+  FLAGS += -DWORKLOAD_DISTRIBUTION
+else ifeq ($(QUEUE_IMPL),LONGEST)
+  QUEUE_SRC = ../queue/queue_LONGEST.c
+  OUTPUT_NAME = -LONGEST
+  FLAGS += -DWORKLOAD_DISTRIBUTION  
 else
   QUEUE_SRC = ../queue/queue.c
   OUTPUT_NAME = -ORIGIN

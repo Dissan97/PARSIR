@@ -81,10 +81,11 @@ void ProcessEvent(unsigned int me, double now, int event_type, void *event_conte
 	switch(event_type) {
 
 		case INIT:
-
+#ifdef WORKLOAD_DISTRIBUTION
 			hotspots = HOTSPOTS*(OBJECTS);
 			if(me == 0) printf("%u, %f, %f, %f\n", OBJECTS, hotspots, HOTSPOTS, (OBJECTS-hotspots-1));
 			if(me >= (OBJECTS-(hotspots + 1))) printf("%u: im hotspot\n", me);
+#endif
 			// Initialize the LP's state
 			state  = (lp_state_type *) malloc(sizeof(lp_state_type));
 			if (state == NULL){

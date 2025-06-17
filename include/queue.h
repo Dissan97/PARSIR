@@ -3,7 +3,7 @@
 #define QUEUE
 
 
-#define WORKLOAD_DISTRIBUTION
+//#define WORKLOAD_DISTRIBUTION
 #define BARRIER_TIMER
 
 #include <pthread.h>
@@ -29,10 +29,10 @@ typedef struct _slot{
 	unsigned long long __attribute__((aligned(64))) event_mean_time;
 #endif
 } slot;
+
+#ifdef WORKLOAD_DISTRIBUTION
 extern long long primary;
 extern long long secondary;
-#ifdef WORKLOAD_DISTRIBUTION
-
 
 enum OUTCOME {
     NO_ID_AVAILABLE = OBJECTS,
@@ -55,6 +55,7 @@ enum OUTCOME {
     : /* no output */ \
     : "r"(ptr) \
     : "rax", "rdx", "rcx" )
+
 
 #endif
 
