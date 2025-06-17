@@ -12,7 +12,8 @@
 
 slot queue[OBJECTS][NUM_SLOTS];
 lock_buffer locks[OBJECTS][NUM_SLOTS];
-
+long long total_events[OBJECTS] = {[0 ... OBJECTS - 1] 0};
+long long total_times[OBJECTS] = {[0 ... OBJECTS - 1] 0};
 double volatile current_min_limit = 0.0;
 double volatile current_max_limit = NUM_SLOTS * LOOKAHEAD;
 int volatile current_index = 0;
@@ -268,7 +269,8 @@ void fallback_check(void){
     }
 
 }
-
+long long primary = 0;
+long long secondary = 0;
 
 long long primary_ID_acquisition(){
     long long ID;
@@ -312,10 +314,12 @@ long long primary_ID_acquisition(){
 		total_worktime[my_index] / OBJECTS
 	 )))
     {
+        __sync_fetch_and_add(&primary, 1);
         return ID; // the thread will simply
         // process the event of this object
     }
-
+// printf("LP: %lld Carico medio: %ld - carico attuale: %ld\n",ID, total_worktime[my_index] / OBJECTS, queue[ID][my_index].num_events * queue[ID][my_index].event_mean_time);
+    __sync_fetch_and_add(&secondary, 1);
 	//offload(ID);
 #ifndef NUMA_BALANCING
     index = __sync_fetch_and_add(&put_ids, 1);
@@ -413,6 +417,9 @@ long long ID_read_retry(long long *outcome, long long index){
     }
 }
 
+#define ALPHA_EWMA 2
+
+
 
 queue_elem * queue_extract(){
 
@@ -426,7 +433,7 @@ queue_elem * queue_extract(){
 	long long outcome;
 	long long EN_i=0;
 	int next_index;
-    
+    long long old;
     
 start:
 
@@ -499,6 +506,7 @@ start:
     if (barrier_timer())
 #endif
     {
+        
 		update_timing();//this call updates the queue layout and releases the objects taken by threads in the last epoch
 	}
 
@@ -517,19 +525,29 @@ start:
 
 process_current_epoch_events:
 
-
 	pthread_spin_lock(&locks[target][index].lock);
 
 	if( head->next == tail) { //the current slot is empty
 		// updating the mean time of the events for the current object for next epoch
 		took_tick(&_end_time);
-		next_index = (index + 1) % NUM_SLOTS;
-		// etx calculation
-		EN_i = (_end_time - _start_time) / (queue[target][index].num_events + 1); // to avoid division by zero 0 events
-		queue[target][next_index].event_mean_time = EN_i;
-		__sync_fetch_and_add(&total_worktime[next_index], EN_i);
-        // reset the current object events
-		queue[target][index].num_events = 0;
+        next_index = (index + 1) % NUM_SLOTS;
+
+        EN_i = (_end_time - _start_time)
+            / (queue[target][index].num_events + 1);
+
+        // **EWMA **  
+
+#ifdef ALPHA_EWMA
+        total_events[target] += queue[target][index].num_events;
+        total_times[target] += (_end_time - _start_time);
+        queue[target][next_index].event_mean_time = total_times[target] / total_events[target]; // (old >> ALPHA_EWMA);
+#else
+    // next mean time as actual mean time
+    queue[target][next_index].event_mean_time = EN_i;
+#endif
+        
+        __sync_fetch_and_add(&total_worktime[next_index], EN_i);
+        queue[target][index].num_events = 0;
 		pthread_spin_unlock(&locks[target][index].lock);
 		if (end){
 		       	return NULL;

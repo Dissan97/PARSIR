@@ -29,7 +29,8 @@ typedef struct _slot{
 	unsigned long long __attribute__((aligned(64))) event_mean_time;
 #endif
 } slot;
-
+extern long long primary;
+extern long long secondary;
 #ifdef WORKLOAD_DISTRIBUTION
 
 
@@ -47,7 +48,7 @@ enum OUTCOME {
  * @param ptr pointer to the location where the tick will be stored
  */
 #define took_tick(ptr) asm volatile( \
-    "rdtscp\n\t" \
+    "rdtsc\n\t" \
     "shl $32, %%rdx\n\t" \
     "or %%rax, %%rdx\n\t" \
     "mov %%rdx, (%0)" \

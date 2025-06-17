@@ -60,8 +60,11 @@ void read2(datatype2 ** p){
 
 //callback function for processing an event at an object
 void ProcessEvent(unsigned int me, double now, int event_type, void *event_content, unsigned int size, void *ptr) {
-
-	double timestamp;
+	
+	double timestamp,hload;
+#ifdef UNBALANCE
+        double hotspots;
+#endif
 	uint32_t *s1, *s2;
 	unsigned int dest;
 	event_content = event_content;
@@ -79,6 +82,9 @@ void ProcessEvent(unsigned int me, double now, int event_type, void *event_conte
 
 		case INIT:
 
+			hotspots = HOTSPOTS*(OBJECTS);
+			if(me == 0) printf("%u, %f, %f, %f\n", OBJECTS, hotspots, HOTSPOTS, (OBJECTS-hotspots-1));
+			if(me >= (OBJECTS-(hotspots + 1))) printf("%u: im hotspot\n", me);
 			// Initialize the LP's state
 			state  = (lp_state_type *) malloc(sizeof(lp_state_type));
 			if (state == NULL){
@@ -136,7 +142,14 @@ void ProcessEvent(unsigned int me, double now, int event_type, void *event_conte
 
 			ScheduleNewEvent(dest, timestamp, NORMAL, NULL, 0);
 			//printf("object %d - scheduled event %d - timestamp is %e - destination is %d\n ",me, NORMAL, timestamp, dest);
-
+			hload = 1;
+#ifdef UNBALANCE
+			int k=0;
+			hotspots = HOTSPOTS*(OBJECTS);
+			if(me >= (OBJECTS-(hotspots + 1))) hload = H_LOAD;
+for(k=0;k<hload;k++)
+#endif
+{
 			for(i = 0; i < REALLOCATION; i++){
 				dell1(&(state)->p1);
 				dell2(&(state)->p2);
@@ -150,7 +163,7 @@ void ProcessEvent(unsigned int me, double now, int event_type, void *event_conte
 
 			read1(&(state->p1));
 			read2(&(state->p2));
-			
+}			
 			break;
 
 		default:

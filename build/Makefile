@@ -5,6 +5,8 @@ HWSETUP   = -DMEM_NODES=2
 QUEUE_IMPL ?= DEFAULT
 NUMA ?= 0
 UNBALANCE ?= 0
+NUM_BARRIER ?= -1
+
 # ====== Queue source selection ======
 ifeq ($(QUEUE_IMPL),LPTF)
   QUEUE_SRC = ../queue/queue_LPTF.c
@@ -26,17 +28,27 @@ else
 	OUTPUT_NAME := $(OUTPUT_NAME)-BALANCE
 endif
 
-
+ifneq ($(NUM_BARRIER), -1)
+	FLAGS += -DMEAN_TIME_NUM=$(NUM_BARRIER)
+endif
 
 # ====== Optional build-time parameters ======
 THREADS ?= 40
 LOOKAHEAD ?= 1.0
 OBJECTS ?= 1024
 ALPHA ?= 0.1
+# H_LOAD
+HL ?= 2.0
+# HOTSPOTS
+HP ?= 0.1
+
 FLAGS += -DALPHA=$(ALPHA)
 FLAGS += -DTHREADS=$(THREADS)
 FLAGS += -DLOOKAHEAD=$(LOOKAHEAD)
 FLAGS += -DOBJECTS=$(OBJECTS)
+FLAGS += -DH_LOAD=$(HL)
+FLAGS += -DHOTSPOTS=$(HP)
+
 
 # ====== Targets ======
 all: runtime
@@ -71,5 +83,5 @@ highway: runtime
 	gcc -g -o ../bin/PARSIR-simulator-highway$(OUTPUT_NAME) ../lib/PARSIR-runtime.o -I ../include -lpthread -lnuma ../models/highway/highway.o
 
 phold: runtime
-	cd ../models/phold ; make
+	make -C ../models/phold _FLAGS="$(FLAGS)" _HWSETUP="$(HWSETUP)"
 	gcc -o ../bin/PARSIR-simulator-phold$(OUTPUT_NAME) ../lib/PARSIR-runtime.o -I../include -lpthread -lnuma ../models/phold/phold.o

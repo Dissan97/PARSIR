@@ -1,5 +1,5 @@
 CC = gcc 
-CFLAGS = -Wall -Wextra -I ../../include/ -I ./ -c
+CFLAGS = -Wall -Wextra -I ../../include/ -I ./ -c $(_FLAGS) $(_HWSETUP)
 LINKER = -Xlinker --wrap=malloc 
 TARGET = intermediate-phold.o 
 

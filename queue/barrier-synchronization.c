@@ -109,6 +109,7 @@ int barrier_timer(void) {
 
     //if (last_thread == THREADS - 1) {
     if (ret) {
+        
         long end_time = now_nsec();
         long delta = end_time - start_time;
 
@@ -149,24 +150,26 @@ int barrier_timer(void) {
             if (batch1.count >= BATCH1_SIZE) {
                 double mean1 = (double)batch1.sum / batch1.count;
                 double global_mean = (double)global_sum / global_count;
-            
-
+#ifdef WORKLOAD_DISTRIBUTION
+                long long sum = primary + secondary;
+                printf("primary %f - secondary %f\n", (float)(primary * 100 )/ (sum), (secondary * 100.0) / sum);
+#endif                
                 printf("{\"Barrier measures\": {"
                                 "\"Round\": %lu, "
                                 "\"Batch1 (N=%d)\": { \"count\": %lu, \"min\": %ld, \"mean\": %.3f, \"max\": %ld, \"max-min\": %ld }, "
                                 "\"Batch2 (N=%d)\": { \"count\": %lu, \"min\": %ld, \"mean\": %.3f, \"max\": %ld, \"max-min\": %ld }, "
                                 "\"Batch3 (N=%d)\": { \"count\": %lu, \"min\": %ld, \"mean\": %.3f, \"max\": %ld, \"max-min\": %ld }, "
                                 "\"Global\": { \"count\": %lu, \"min\": %ld, \"mean\": %.3f, \"max\": %ld }, "
-                                "\"Batch cumulative\": %ld, "
-                                "\"Total barrier's time\": %ld"
+                                "\"Barrier time\": %ld, "
+                                "\"Total time\": %ld"
                             "}}\n",
                        round_number,
                        BATCH1_SIZE, batch1.count, batch1.min, mean1, batch1.max, batch1.max - batch1.min,
                        BATCH2_SIZE, snapshot2.count, snapshot2.min, snapshot2.mean, snapshot2.max, snapshot2.max - snapshot2.min,
                        BATCH3_SIZE, snapshot3.count, snapshot3.min, snapshot3.mean, snapshot3.max, snapshot3.max - snapshot3.min,
                        global_count, global_min, global_mean, global_max,
-                       batch1.sum,
-                       (end_time - start_round));
+                       (long)(batch1.sum / 1e6),
+                       (long)((end_time - start_round) / (1e6)));
 
                 reset_batch(&batch1);
                 reset_batch(&batch2);
