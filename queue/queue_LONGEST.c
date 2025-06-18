@@ -20,7 +20,7 @@ double volatile current_max_limit = NUM_SLOTS * LOOKAHEAD;
 int volatile current_index = 0;
 
 long pending_events __attribute__((aligned(64))) = 0;
-long object_identifiers __attribute__((aligned(64))) = 0;
+volatile long object_identifiers __attribute__((aligned(64))) = 0;
 long object_identifiers_vector[MAX_NUMA_NODES] __attribute__((aligned(64))) = { [0 ... MAX_NUMA_NODES-1] 0};
 int end = 0;
 
@@ -28,7 +28,7 @@ __thread int my_index = 0;
 __thread fallback_slot fallback_queue; //WE INITIALIZE VIA EMPTY ZERO MEMORY = { .head = NULL , .tail = NULL };
 
 __thread unsigned me;
-__thread unsigned target = -1;
+__thread volatile unsigned target = -1;
 
 //we use '_' here just to discriminate from the
 //corresponding non TLS global variables
@@ -274,14 +274,15 @@ queue_elem * queue_extract(){
 	queue_elem * head;
 	queue_elem * tail;
 	queue_elem * elem;
-
+    long long pool_index;
 	AUDIT printf("thread %d - extraction with target %d\n",me,target);
 
 start:
 #ifndef NUMA_BALANCING
 	if (target == -1) {
+        pool_index = __sync_fetch_and_add(&object_identifiers,1);
+        target =  pool[pool_index].ID;
         took_tick(&_start_time);
-        target =  pool[__sync_fetch_and_add(&object_identifiers,1)].ID;
     }
 #else
 	if (target == -1){
@@ -298,6 +299,9 @@ retry:
 		else{
 			target += _min[myNUMAindex];
 		}
+        
+
+        took_tick(&_start_time);
 	}
 
 #endif
@@ -311,9 +315,19 @@ redo:
 
 		if( head->next == tail) { //the current slot is empty - try with another target 
 #ifndef NUMA_BALANCING
-			target =  pool[__sync_fetch_and_add(&object_identifiers,1)].ID;
+            pool_index = __sync_fetch_and_add(&object_identifiers,1);
+            if (pool_index >= OBJECTS){
+                target = pool_index;
+                goto redo;
+            }
+			target =  pool[pool_index].ID;
 #else
-			target = pool[__sync_fetch_and_add(&object_identifiers_vector[myNUMAindex],1)].ID; 
+            pool_index = __sync_fetch_and_add(&object_identifiers_vector[myNUMAindex],1);
+            if (pool_index >= OBJECTS){
+                target = pool_index;
+                goto redo;
+            }
+			target = pool[pool_index].ID; 
 			if (target >= _c[myNUMAindex]){
 				goto retry;
 				//the below stuff (if/else) is useless and can be removed

@@ -61,7 +61,8 @@ void read2(datatype2 ** p){
 //callback function for processing an event at an object
 void ProcessEvent(unsigned int me, double now, int event_type, void *event_content, unsigned int size, void *ptr) {
 	
-	double timestamp,hload;
+	double timestamp;
+	double hload;
 #ifdef UNBALANCE
         double hotspots;
 #endif
@@ -81,7 +82,7 @@ void ProcessEvent(unsigned int me, double now, int event_type, void *event_conte
 	switch(event_type) {
 
 		case INIT:
-#ifdef WORKLOAD_DISTRIBUTION
+#ifdef UNBALANCE
 			hotspots = HOTSPOTS*(OBJECTS);
 			if(me == 0) printf("%u, %f, %f, %f\n", OBJECTS, hotspots, HOTSPOTS, (OBJECTS-hotspots-1));
 			if(me >= (OBJECTS-(hotspots + 1))) printf("%u: im hotspot\n", me);
